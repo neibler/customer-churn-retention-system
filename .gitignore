@@ -205,3 +205,11 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+#gitignore 보강** — data/raw, 모델 파일 등 커밋 방지
+data/raw/
+data/processed/
+*.pkl
+*.pt
+__pycache__/
+.env
