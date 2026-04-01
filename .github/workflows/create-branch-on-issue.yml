@@ -1,0 +1,52 @@
+name: Create branch on issue
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  create-branch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create branch from issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ISSUE_NUM=${{ github.event.issue.number }}
+          TITLE="${{ github.event.issue.title }}"
+
+          # 제목을 slug로 변환 (소문자, 공백→하이픈, 특수문자 제거)
+          SLUG=$(echo "$TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9가-힣]/-/g' | sed 's/--*/-/g' | cut -c1-40)
+
+          # 라벨 기반으로 prefix 결정 (없으면 feat 기본값)
+          LABEL=$(echo '${{ toJson(github.event.issue.labels) }}' | python3 -c "
+          import sys, json
+          labels = [l['name'] for l in json.load(sys.stdin)]
+          prefix_map = {'bug':'fix','infra':'infra','model':'model','data':'data','docs':'docs'}
+          for l in labels:
+              if l in prefix_map:
+                  print(prefix_map[l])
+                  exit()
+          print('feat')
+          ")
+
+          BRANCH="${LABEL}/${ISSUE_NUM}-${SLUG}"
+          echo "Creating branch: $BRANCH"
+
+          git checkout -b "$BRANCH"
+          git push origin "$BRANCH"
+
+          # Issue에 브랜치명 코멘트 자동 등록
+          gh issue comment $ISSUE_NUM \
+            --body "🌿 브랜치가 생성되었습니다: \`$BRANCH\`
+            
+작업을 시작하려면:
+\`\`\`bash
+git fetch origin
+git checkout $BRANCH
+\`\`\`"
