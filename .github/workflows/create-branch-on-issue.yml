@@ -1,0 +1,61 @@
+name: Create branch on issue
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  create-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create branch from issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ISSUE_NUMBER=${{ github.event.issue.number }}
+
+          # 라벨 목록에서 브랜치 prefix 결정
+          LABELS='${{ toJson(github.event.issue.labels.*.name) }}'
+
+          if echo "$LABELS" | grep -qi "feat"; then
+            PREFIX="feat"
+          elif echo "$LABELS" | grep -qi "fix"; then
+            PREFIX="fix"
+          elif echo "$LABELS" | grep -qi "refactor"; then
+            PREFIX="refactor"
+          elif echo "$LABELS" | grep -qi "docs"; then
+            PREFIX="docs"
+          elif echo "$LABELS" | grep -qi "infra"; then
+            PREFIX="infra"
+          elif echo "$LABELS" | grep -qi "data"; then
+            PREFIX="data"
+          elif echo "$LABELS" | grep -qi "model"; then
+            PREFIX="model"
+          elif echo "$LABELS" | grep -qi "config"; then
+            PREFIX="config"
+          elif echo "$LABELS" | grep -qi "test"; then
+            PREFIX="test"
+          elif echo "$LABELS" | grep -qi "style"; then
+            PREFIX="style"
+          elif echo "$LABELS" | grep -qi "chore"; then
+            PREFIX="chore"
+          else
+            PREFIX="issue"
+          fi
+
+          BRANCH_NAME="${PREFIX}/${ISSUE_NUMBER}"
+
+          if git ls-remote --exit-code --heads origin "$BRANCH_NAME" >/dev/null 2>&1; then
+            echo "Branch $BRANCH_NAME already exists, skipping."
+          else
+            git checkout -b "$BRANCH_NAME"
+            git push origin "$BRANCH_NAME"
+          fi
+
+          gh issue comment "$ISSUE_NUMBER" --body "🌿 브랜치가 생성되었습니다: \`$BRANCH_NAME\`"
