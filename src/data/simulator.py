@@ -377,7 +377,15 @@ def run_simulation(config_path: str | Path, mode: str = "full") -> tuple[pd.Data
             print(f"[Simulator] Progress: {idx + 1:,}/{n_customers:,} customers processed...")
 
     customers_df["churned"] = churn_labels
-    events_df = pd.DataFrame(all_events)
+    event_columns = [
+        "customer_id",
+        "event_date",
+        "event_type",
+        "persona",
+        "is_treatment",
+        "order_value",
+    ]
+    events_df = pd.DataFrame(all_events, columns=event_columns)
 
     # --- Validate churn rate ---
     churn_rate = customers_df["churned"].mean()
