@@ -216,14 +216,18 @@ def simulate_customer(
         if churned:
             break
 
-        # Monthly churn roll (only on month boundaries to reduce overhead)
-        if day % 30 == 0 and day > 0:
-            churn_prob = compute_churn_prob(persona_cfg, month, drift_cfg)
+        # Daily churn roll: convert monthly probability to daily equivalent so that
+        # short-lived intervention windows (7–14 days) actually have a chance to fire
+        # before the next evaluation.  Expected monthly churn rate is preserved via
+        # p_daily = 1 - (1 - p_monthly)^(1/30).
+        if day > 0:
+            monthly_churn_prob = compute_churn_prob(persona_cfg, month, drift_cfg)
+            daily_churn_prob = 1.0 - (1.0 - monthly_churn_prob) ** (1.0 / 30.0)
             if day < active_churn_suppressed_until:
-                churn_prob *= 0.5  # intervention reduces churn prob
+                daily_churn_prob *= 0.5  # intervention reduces churn prob
             elif day < active_churn_boosted_until:
-                churn_prob *= 2.0  # reverse effect temporarily increases churn prob
-            if rng.random() < churn_prob:
+                daily_churn_prob *= 2.0  # reverse effect temporarily increases churn prob
+            if rng.random() < daily_churn_prob:
                 churned = True
                 churn_day = day
                 break
@@ -314,6 +318,7 @@ def simulate_customer(
         if (
             days_no_purchase >= churn_def["no_purchase_days"]
             and days_no_visit >= churn_def["no_visit_days"]
+            and day >= active_churn_suppressed_until  # respect active intervention suppression
         ):
             churned = True
             churn_day = day
