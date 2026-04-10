@@ -1,0 +1,198 @@
+simulation:
+  mode: full  # full | small
+  full:
+    n_customers: 20000
+    n_days: 365
+  small:
+    n_customers: 5000
+    n_days: 180
+  random_seed: 42
+  output_dir: data/raw
+
+treatment_control:
+  treatment_ratio: 0.5  # 0.5 = 10,000 treatment / 10,000 control
+
+churn_definition:
+  no_purchase_days: 45
+  no_visit_days: 90
+  target_churn_rate_min: 0.15
+  target_churn_rate_max: 0.25
+
+personas:
+  vip_loyal:
+    label: VIP충성고객
+    weight: 0.10  # 전체 고객 중 비율
+    visit_freq_per_month: 12.0   # 평균 월 방문 횟수
+    visit_freq_std: 2.0
+    purchase_cycle_days: 7.0     # 평균 구매 주기(일)
+    purchase_cycle_std: 2.0
+    avg_order_value: 150000
+    avg_order_value_std: 40000
+    base_churn_prob: 0.004
+    marketing_response:
+      coupon: 0.05               # 전환 증가 확률
+      push_notification: 0.03
+      reverse_effect_prob: 0.00  # 역효과 확률
+    event_weights:
+      page_view: 0.30
+      search: 0.15
+      add_to_cart: 0.15
+      remove_from_cart: 0.03
+      purchase: 0.18
+      coupon_use: 0.08
+      review: 0.07
+      cs_contact: 0.04
+
+  regular_loyal:
+    label: 일반충성고객
+    weight: 0.20
+    visit_freq_per_month: 6.0
+    visit_freq_std: 2.0
+    purchase_cycle_days: 14.0
+    purchase_cycle_std: 4.0
+    avg_order_value: 60000
+    avg_order_value_std: 20000
+    base_churn_prob: 0.007
+    marketing_response:
+      coupon: 0.12
+      push_notification: 0.08
+      reverse_effect_prob: 0.01
+    event_weights:
+      page_view: 0.32
+      search: 0.18
+      add_to_cart: 0.14
+      remove_from_cart: 0.05
+      purchase: 0.14
+      coupon_use: 0.07
+      review: 0.06
+      cs_contact: 0.04
+
+  price_sensitive:
+    label: 가격민감형
+    weight: 0.20
+    visit_freq_per_month: 5.0
+    visit_freq_std: 3.0
+    purchase_cycle_days: 21.0
+    purchase_cycle_std: 7.0
+    avg_order_value: 30000
+    avg_order_value_std: 10000
+    base_churn_prob: 0.013
+    marketing_response:
+      coupon: 0.25
+      push_notification: 0.05
+      reverse_effect_prob: 0.02
+    event_weights:
+      page_view: 0.28
+      search: 0.22
+      add_to_cart: 0.16
+      remove_from_cart: 0.10
+      purchase: 0.08
+      coupon_use: 0.10
+      review: 0.03
+      cs_contact: 0.03
+
+  explorer:
+    label: 탐색형
+    weight: 0.20
+    visit_freq_per_month: 8.0
+    visit_freq_std: 4.0
+    purchase_cycle_days: 30.0
+    purchase_cycle_std: 15.0
+    avg_order_value: 45000
+    avg_order_value_std: 25000
+    base_churn_prob: 0.014
+    marketing_response:
+      coupon: 0.10
+      push_notification: 0.12
+      reverse_effect_prob: 0.03
+    event_weights:
+      page_view: 0.38
+      search: 0.28
+      add_to_cart: 0.12
+      remove_from_cart: 0.08
+      purchase: 0.05
+      coupon_use: 0.03
+      review: 0.04
+      cs_contact: 0.02
+
+  churning:
+    label: 이탈진행형
+    weight: 0.15
+    visit_freq_per_month: 2.0
+    visit_freq_std: 1.5
+    purchase_cycle_days: 45.0
+    purchase_cycle_std: 20.0
+    avg_order_value: 25000
+    avg_order_value_std: 15000
+    base_churn_prob: 0.018
+    marketing_response:
+      coupon: 0.15
+      push_notification: 0.08
+      reverse_effect_prob: 0.05
+    event_weights:
+      page_view: 0.35
+      search: 0.20
+      add_to_cart: 0.10
+      remove_from_cart: 0.12
+      purchase: 0.04
+      coupon_use: 0.06
+      review: 0.02
+      cs_contact: 0.11
+
+  new_user:
+    label: 신규가입자
+    weight: 0.15
+    visit_freq_per_month: 4.0
+    visit_freq_std: 3.0
+    purchase_cycle_days: 20.0
+    purchase_cycle_std: 10.0
+    avg_order_value: 35000
+    avg_order_value_std: 20000
+    base_churn_prob: 0.013
+    marketing_response:
+      coupon: 0.20
+      push_notification: 0.18
+      reverse_effect_prob: 0.02
+    event_weights:
+      page_view: 0.35
+      search: 0.25
+      add_to_cart: 0.14
+      remove_from_cart: 0.07
+      purchase: 0.08
+      coupon_use: 0.05
+      review: 0.03
+      cs_contact: 0.03
+
+events:
+  types:
+    - page_view
+    - search
+    - add_to_cart
+    - remove_from_cart
+    - purchase
+    - coupon_use
+    - review
+    - cs_contact
+
+marketing:
+  interventions:
+    coupon:
+      enabled: true
+      trigger_no_purchase_days: 14   # 미구매 N일 후 발송
+      treatment_only: true
+      discount_rate: 0.15
+    push_notification:
+      enabled: true
+      trigger_no_visit_days: 7
+      treatment_only: true
+  intervention_cooldown_days: 7     # 동일 고객 재발송 최소 간격
+
+# 행동 변화 모델: 시간 경과에 따른 이탈 확률 drift
+temporal_drift:
+  churn_prob_increase_per_month: 0.0008  # 월별 기본 이탈 확률 증가량
+  seasonality:
+    enabled: true
+    peak_months: [11, 12]   # 11~12월 성수기
+    peak_multiplier: 0.7    # 이탈 확률 감소 (활동 증가)
+    off_peak_months: [2, 3]
+    off_peak_multiplier: 1.2
