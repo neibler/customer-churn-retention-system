@@ -208,6 +208,11 @@ def simulate_customer(
     active_churn_boosted_until: int = -1    # day until reverse-effect churn boost lasts
     next_purchase_eligible_day: int = 0     # earliest day a new purchase can occur
 
+    # Resolve treatment_only flags once before the loop (config is immutable per run)
+    interventions_cfg = marketing_cfg["interventions"]
+    coupon_treatment_only: bool = interventions_cfg["coupon"].get("treatment_only", True)
+    push_treatment_only: bool = interventions_cfg["push_notification"].get("treatment_only", True)
+
     for day in range(n_days):
         month = day // 30
         current_date = start_date + timedelta(days=day)
@@ -217,7 +222,7 @@ def simulate_customer(
             break
 
         # Daily churn roll: convert monthly probability to daily equivalent so that
-        # short-lived intervention windows (7–14 days) actually have a chance to fire
+        # short-lived intervention windows (7-14 days) actually have a chance to fire
         # before the next evaluation.  Expected monthly churn rate is preserved via
         # p_daily = 1 - (1 - p_monthly)^(1/30).
         if day > 0:
@@ -232,8 +237,10 @@ def simulate_customer(
                 churn_day = day
                 break
 
-        # --- Marketing interventions (treatment group only) ---
-        if is_treatment:
+        # --- Marketing interventions ---
+        # Each intervention respects its own treatment_only flag from config.
+        # If treatment_only is true, only treatment group customers receive it.
+        if not coupon_treatment_only or is_treatment:
             if should_trigger_coupon(last_purchase_day, day, last_coupon_day, marketing_cfg):
                 last_coupon_day = day
                 response = persona_cfg["marketing_response"]
@@ -255,6 +262,7 @@ def simulate_customer(
                         }
                     )
 
+        if not push_treatment_only or is_treatment:
             if should_trigger_push(last_visit_day, day, last_push_day, marketing_cfg):
                 last_push_day = day
                 response = persona_cfg["marketing_response"]
@@ -265,7 +273,7 @@ def simulate_customer(
         # --- Visit-driven events ---
         if day in visit_days:
             last_visit_day = day
-            # Number of events on this visit (1–5)
+            # Number of events on this visit (1-5)
             n_events = int(rng.integers(1, 6))
             for _ in range(n_events):
                 etype = pick_event_type(persona_cfg["event_weights"], rng)
