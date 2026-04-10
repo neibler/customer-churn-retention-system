@@ -138,7 +138,7 @@ def should_trigger_coupon(
     if last_coupon_day is not None and (current_day - last_coupon_day) < cooldown:
         return False
     if last_purchase_day is None:
-        return True
+        return current_day >= coupon_cfg["trigger_no_purchase_days"]
     return (current_day - last_purchase_day) >= coupon_cfg["trigger_no_purchase_days"]
 
 
@@ -156,7 +156,7 @@ def should_trigger_push(
     if last_push_day is not None and (current_day - last_push_day) < cooldown:
         return False
     if last_visit_day is None:
-        return True
+        return current_day >= push_cfg["trigger_no_visit_days"]
     return (current_day - last_visit_day) >= push_cfg["trigger_no_visit_days"]
 
 
@@ -205,6 +205,8 @@ def simulate_customer(
     )
 
     active_churn_suppressed_until: int = -1  # day until intervention effect lasts
+    active_churn_boosted_until: int = -1    # day until reverse-effect churn boost lasts
+    next_purchase_eligible_day: int = 0     # earliest day a new purchase can occur
 
     for day in range(n_days):
         month = day // 30
@@ -219,6 +221,8 @@ def simulate_customer(
             churn_prob = compute_churn_prob(persona_cfg, month, drift_cfg)
             if day < active_churn_suppressed_until:
                 churn_prob *= 0.5  # intervention reduces churn prob
+            elif day < active_churn_boosted_until:
+                churn_prob *= 2.0  # reverse effect temporarily increases churn prob
             if rng.random() < churn_prob:
                 churned = True
                 churn_day = day
@@ -232,7 +236,7 @@ def simulate_customer(
                 roll = rng.random()
                 if roll < response["reverse_effect_prob"]:
                     # Reverse effect: increase churn probability temporarily
-                    pass
+                    active_churn_boosted_until = day + 14
                 elif roll < response["reverse_effect_prob"] + response["coupon"]:
                     # Positive response: suppress churn and add coupon_use event
                     active_churn_suppressed_until = day + 14
@@ -263,6 +267,8 @@ def simulate_customer(
                 etype = pick_event_type(persona_cfg["event_weights"], rng)
                 order_value = 0
                 if etype == "purchase":
+                    if day < next_purchase_eligible_day:
+                        continue  # purchase cycle not yet elapsed; skip this event slot
                     order_value = max(
                         0,
                         int(
@@ -273,6 +279,16 @@ def simulate_customer(
                         ),
                     )
                     last_purchase_day = day
+                    cycle = max(
+                        1,
+                        int(
+                            rng.normal(
+                                persona_cfg["purchase_cycle_days"],
+                                persona_cfg["purchase_cycle_std"],
+                            )
+                        ),
+                    )
+                    next_purchase_eligible_day = day + cycle
                 events.append(
                     {
                         "customer_id": customer_id,
