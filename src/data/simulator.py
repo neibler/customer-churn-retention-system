@@ -103,18 +103,27 @@ def pick_event_type(event_weights: dict[str, float], rng: np.random.Generator) -
 
 def compute_churn_prob(
     persona_cfg: dict,
-    month: int,
+    elapsed_months: int,
     drift_cfg: dict,
+    calendar_month: int | None = None,
 ) -> float:
-    """Compute effective churn probability for a given month with temporal drift."""
+    """Compute effective churn probability for a given month with temporal drift.
+
+    Args:
+        elapsed_months: Number of months elapsed since simulation start (for drift).
+        calendar_month: Actual calendar month (1–12) of the current date (for
+            seasonality).  Falls back to ``elapsed_months + 1`` when omitted so
+            that existing call-sites that pass only three arguments still work.
+    """
     base = persona_cfg["base_churn_prob"]
     monthly_increase = drift_cfg["churn_prob_increase_per_month"]
-    prob = base + monthly_increase * month
+    prob = base + monthly_increase * elapsed_months
 
     if drift_cfg["seasonality"]["enabled"]:
-        if (month + 1) in drift_cfg["seasonality"]["peak_months"]:
+        cal_month = calendar_month if calendar_month is not None else (elapsed_months + 1)
+        if cal_month in drift_cfg["seasonality"]["peak_months"]:
             prob *= drift_cfg["seasonality"]["peak_multiplier"]
-        elif (month + 1) in drift_cfg["seasonality"]["off_peak_months"]:
+        elif cal_month in drift_cfg["seasonality"]["off_peak_months"]:
             prob *= drift_cfg["seasonality"]["off_peak_multiplier"]
 
     return float(np.clip(prob, 0.0, 1.0))
@@ -214,7 +223,7 @@ def simulate_customer(
     push_treatment_only: bool = interventions_cfg["push_notification"].get("treatment_only", True)
 
     for day in range(n_days):
-        month = day // 30
+        elapsed_months = day // 30
         current_date = start_date + timedelta(days=day)
 
         # --- Check churn state ---
@@ -226,7 +235,9 @@ def simulate_customer(
         # before the next evaluation.  Expected monthly churn rate is preserved via
         # p_daily = 1 - (1 - p_monthly)^(1/30).
         if day > 0:
-            monthly_churn_prob = compute_churn_prob(persona_cfg, month, drift_cfg)
+            monthly_churn_prob = compute_churn_prob(
+                persona_cfg, elapsed_months, drift_cfg, calendar_month=current_date.month
+            )
             daily_churn_prob = 1.0 - (1.0 - monthly_churn_prob) ** (1.0 / 30.0)
             if day < active_churn_suppressed_until:
                 daily_churn_prob *= 0.5  # intervention reduces churn prob
