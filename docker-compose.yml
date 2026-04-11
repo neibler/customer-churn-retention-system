@@ -1,0 +1,27 @@
+services:
+  app:
+    build: .
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./results:/app/results
+      - ./config:/app/config
+    command: >
+      python src/main.py
+      --mode ${APP_MODE:-simulate}
+      --sim-mode ${SIM_MODE:-full}
+
+  dashboard:
+    build: .
+    env_file: .env
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./results:/app/results
+    command: >
+      streamlit run src/dashboard/app.py
+      --server.port=8501
+      --server.address=0.0.0.0

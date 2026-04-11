@@ -1,0 +1,21 @@
+# Core data
+numpy>=2.0
+pandas>=2.2
+pyyaml>=6.0
+
+# ML
+scikit-learn>=1.5
+xgboost>=2.0
+lightgbm>=4.3
+
+# Dashboard
+streamlit>=1.40
+plotly>=5.24
+
+# Explicit pins for vulnerable transitive deps pulled in by streamlit
+pillow>=10.4.0
+gitpython>=3.1.41
+pyarrow>=14.0.1
+
+# NOTE: PyTorch is installed separately in Dockerfile with the CPU-only wheel.
+# torch>=2.0.0
