@@ -65,9 +65,7 @@ def load_data(data_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
         .rename("signup_date")
     )
     customers = customers.merge(first_event, on="customer_id", how="left")
-    customers["signup_date"] = customers["signup_date"].fillna(
-        pd.Timestamp("2024-01-01")
-    )
+    customers = customers.dropna(subset=["signup_date"]).copy()
     customers["acquisition_month"] = (
         customers["signup_date"].dt.to_period("M").astype(str)
     )
@@ -102,7 +100,7 @@ def build_cohort_retention(
     retention_mode: str = "rolling",
     min_events: int = 1,
 ) -> pd.DataFrame:
-    """Build monthly cohort × period retention table.
+    """Build monthly cohort x period retention table.
 
     Parameters
     ----------
@@ -130,13 +128,23 @@ def build_cohort_retention(
     )
     base["cohort_num"] = _month_num_series(base["acquisition_month"])
 
-    # 이벤트 필터링
-    activity = events[["customer_id", "event_date", "event_type"]].copy()
+    # 관측 가능 구간은 전체 유효 이벤트 타임라인 기준으로 계산
+    valid_events = events[["customer_id", "event_date", "event_type"]].copy()
+    valid_events = valid_events.dropna(subset=["event_date"])
+    if valid_events.empty:
+        end_month_num = int(base["cohort_num"].max())
+    else:
+        all_event_month_num = (
+            valid_events["event_date"].dt.year * 12 + valid_events["event_date"].dt.month
+        )
+        end_month_num = int(all_event_month_num.max())
+
+    # 이벤트 필터링 (리텐션 활동 정의용)
+    activity = valid_events
     if core_events_only:
         activity = activity[activity["event_type"].isin(CORE_EVENT_TYPES)]
 
     if activity.empty:
-        end_month_num = int(base["cohort_num"].max())
         monthly = pd.DataFrame(columns=["customer_id", "event_month_num", "cnt"])
     else:
         activity["event_month_num"] = (
@@ -149,7 +157,6 @@ def build_cohort_retention(
             .rename(columns={"size": "cnt"})
         )
         monthly = monthly[monthly["cnt"] >= min_events]
-        end_month_num = int(activity["event_month_num"].max())
 
     # period 계산
     merged = base.merge(monthly, on="customer_id", how="left")
@@ -368,7 +375,7 @@ def run_cohort_analysis(
     print("\n[Cohort] Monthly cohort retention analysis completed")
     print("[Cohort] Retention rates by month:")
 
-    observed = milestone_df[milestone_df["observed"] == True]
+    observed = milestone_df[milestone_df["observed"]]
     if not observed.empty:
         summary = (
             observed.groupby("period", as_index=False)
@@ -391,7 +398,7 @@ def run_cohort_analysis(
                 match = milestone_df[
                     (milestone_df["cohort_month"] == cm)
                     & (milestone_df["period"] == m)
-                    & (milestone_df["observed"] == True)
+                    & (milestone_df["observed"])
                 ]
                 if not match.empty:
                     rate = match["retention_rate"].iloc[0]
@@ -407,14 +414,22 @@ def run_cohort_analysis(
         print(f"  {'-' * len(header)}")
         print(avg_str)
 
-        # 최대 이탈 구간 식별
-        diffs = summary["avg_retention"].diff().dropna()
-        if len(diffs) > 0:
-            worst_idx = diffs.idxmin()
-            worst_period = int(summary.loc[worst_idx, "period"])
-            worst_drop = abs(diffs.loc[worst_idx])
-            print(f"\n[Cohort] Key finding: M0->M{worst_period} transition shows "
-                  f"highest drop-off (avg {worst_drop:.1%})")
+        # 최대 이탈 구간 식별 (전체 period 기준)
+        observed_all = cohort_df[cohort_df["observed"]]
+        avg_by_period = (
+            observed_all.groupby("period")["retention_rate"]
+            .mean()
+            .sort_index()
+        )
+        diffs = avg_by_period.diff().dropna()
+        if not diffs.empty:
+            to_period = int(diffs.idxmin())
+            from_period = int(avg_by_period.index[avg_by_period.index.get_loc(to_period) - 1])
+            worst_drop = abs(float(diffs.loc[to_period]))
+            print(
+                f"\n[Cohort] Key finding: M{from_period}->M{to_period} transition shows "
+                f"highest drop-off (avg {worst_drop:.1%})"
+            )
 
     # ── 5. Save ──
     paths: dict[str, Path] = {}
