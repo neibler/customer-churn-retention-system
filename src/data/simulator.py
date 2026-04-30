@@ -194,7 +194,7 @@ def simulate_customer(
     marketing_cfg = config["marketing"]
     drift_cfg = config["temporal_drift"]
     churn_def = config["churn_definition"]
-    start_date = date(2024, 1, 1)
+    start_date = date.fromisoformat(config["simulation"]["start_date"])
 
     events: list[dict] = []
     churned = False
@@ -434,3 +434,12 @@ def run_simulation(config_path: str | Path, mode: str = "full") -> tuple[pd.Data
     print(f"[Simulator]   customers.csv : {len(customers_df):,} rows")
 
     return events_df, customers_df
+
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--mode', default='small', choices=['small', 'full'])
+    parser.add_argument('--config', default='config/simulator_config.yaml')
+    args = parser.parse_args()
+    run_simulation(config_path=args.config, mode=args.mode)
