@@ -29,20 +29,16 @@ import pandas as pd
 import seaborn as sns
 
 
-# ── Constants ────────────────────────────────────────────────────
 RETENTION_MILESTONES: tuple[int, ...] = (1, 3, 6)
 MAX_PERIODS: int = 13  # period 0 ~ 12
 
-# 리텐션 산정에 사용할 이벤트 (구매/탐색 중심, 잡음 제거)
+# Purchase/exploration events only; excludes noise like cs_contact
 CORE_EVENT_TYPES: set[str] = {
     "page_view",
     "search",
     "add_to_cart",
     "purchase",
 }
-
-
-# ── Data loading ─────────────────────────────────────────────────
 
 
 def load_data(data_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -58,7 +54,6 @@ def load_data(data_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     events = pd.read_csv(data_dir / "events.csv")
     events["event_date"] = pd.to_datetime(events["event_date"], errors="coerce")
 
-    # signup_date = 고객별 첫 이벤트 날짜
     first_event = (
         events.groupby("customer_id")["event_date"]
         .min()
@@ -71,9 +66,6 @@ def load_data(data_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     )
 
     return customers, events
-
-
-# ── Month number helpers ─────────────────────────────────────────
 
 
 def _month_num(period_str: str) -> int:
@@ -89,9 +81,6 @@ def _month_num_series(s: pd.Series) -> pd.Series:
     return year * 12 + month
 
 
-# ── Cohort retention builder ─────────────────────────────────────
-
-
 def build_cohort_retention(
     customers: pd.DataFrame,
     events: pd.DataFrame,
@@ -104,9 +93,9 @@ def build_cohort_retention(
 
     Parameters
     ----------
-    core_events_only : True 이면 CORE_EVENT_TYPES 만 활동으로 인정
-    retention_mode : 'rolling' (해당 월 또는 이후 활동) | 'point' (해당 월 활동)
-    min_events : 해당 월에 최소 이벤트 수 (기본 1)
+    core_events_only : if True, only CORE_EVENT_TYPES count as activity
+    retention_mode : 'rolling' (active in that month or later) | 'point' (active in that month)
+    min_events : minimum event count to count as retained (default 1)
 
     Returns
     -------
@@ -122,13 +111,11 @@ def build_cohort_retention(
             ]
         )
 
-    # 고객 기본 정보
     base = customers[["customer_id", "acquisition_month"]].drop_duplicates(
         subset=["customer_id"]
     )
     base["cohort_num"] = _month_num_series(base["acquisition_month"])
 
-    # 관측 가능 구간은 전체 유효 이벤트 타임라인 기준으로 계산
     valid_events = events[["customer_id", "event_date", "event_type"]].copy()
     valid_events = valid_events.dropna(subset=["event_date"])
     if valid_events.empty:
@@ -139,7 +126,6 @@ def build_cohort_retention(
         )
         end_month_num = int(all_event_month_num.max())
 
-    # 이벤트 필터링 (리텐션 활동 정의용)
     activity = valid_events
     if core_events_only:
         activity = activity[activity["event_type"].isin(CORE_EVENT_TYPES)]
@@ -150,7 +136,6 @@ def build_cohort_retention(
         activity["event_month_num"] = (
             activity["event_date"].dt.year * 12 + activity["event_date"].dt.month
         )
-        # 월별 고객 이벤트 수 집계
         monthly = (
             activity.groupby(["customer_id", "event_month_num"], as_index=False)
             .size()
@@ -158,20 +143,16 @@ def build_cohort_retention(
         )
         monthly = monthly[monthly["cnt"] >= min_events]
 
-    # period 계산
     merged = base.merge(monthly, on="customer_id", how="left")
     merged["period"] = merged["event_month_num"] - merged["cohort_num"]
     merged = merged[(merged["period"] >= 0) & (merged["period"] < periods)]
 
-    # 코호트 사이즈
     cohort_sizes = base.groupby("acquisition_month")["customer_id"].nunique()
 
-    # 각 코호트가 관측 가능한 최대 period
     observed_max = {
         cm: end_month_num - _month_num(cm) for cm in cohort_sizes.index
     }
 
-    # rolling 모드: 고객별 마지막 활동 period
     if retention_mode == "rolling":
         last_period = merged.groupby(
             ["acquisition_month", "customer_id"]
@@ -220,9 +201,6 @@ def build_cohort_retention(
     return result.sort_values(["cohort_month", "period"]).reset_index(drop=True)
 
 
-# ── Milestone table ──────────────────────────────────────────────
-
-
 def extract_milestones(
     cohort_df: pd.DataFrame,
     milestones: Sequence[int] = RETENTION_MILESTONES,
@@ -231,9 +209,6 @@ def extract_milestones(
     df = cohort_df[cohort_df["period"].isin(milestones)].copy()
     df["churn_rate"] = 1.0 - df["retention_rate"]
     return df
-
-
-# ── Visualization ────────────────────────────────────────────────
 
 
 def plot_retention_curve(
@@ -333,34 +308,22 @@ def plot_retention_heatmap(
     plt.close(fig)
 
 
-# ── Main entry point ─────────────────────────────────────────────
-
-
 def run_cohort_analysis(
     data_dir: str | Path = "data/raw",
     output_dir: str | Path = "results",
 ) -> dict[str, Path]:
-    """Run full cohort analysis pipeline.
-
-    1. Load simulator data
-    2. Build cohort retention table (rolling, core events)
-    3. Extract M1/M3/M6 milestones
-    4. Generate plots
-    5. Print summary & save CSVs
-
-    Returns dict of output file paths.
-    """
+    """Run full cohort analysis pipeline and return output file paths."""
     data_dir = Path(data_dir)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── 1. Load ──
+    # 1. Load
     customers, events = load_data(data_dir)
     print(f"[Cohort] Loaded {len(customers):,} customers, {len(events):,} events")
     print(f"[Cohort] Event period: {events['event_date'].min().date()} ~ "
           f"{events['event_date'].max().date()}")
 
-    # ── 2. Build cohort table ──
+    # 2. Build cohort table
     cohort_df = build_cohort_retention(
         customers, events,
         periods=MAX_PERIODS,
@@ -368,10 +331,10 @@ def run_cohort_analysis(
         retention_mode="rolling",
     )
 
-    # ── 3. Milestones ──
+    # 3. Milestones
     milestone_df = extract_milestones(cohort_df, RETENTION_MILESTONES)
 
-    # ── 4. Print summary ──
+    # 4. Print summary
     print("\n[Cohort] Monthly cohort retention analysis completed")
     print("[Cohort] Retention rates by month:")
 
@@ -391,7 +354,6 @@ def run_cohort_analysis(
         print(f"  {header}")
         print(f"  {'-' * len(header)}")
 
-        # 코호트별 마일스톤 출력
         for cm in sorted(cohort_df["cohort_month"].unique()):
             row_str = f"  {cm:>10s} | {'100%':>7s}"
             for m in RETENTION_MILESTONES:
@@ -407,14 +369,12 @@ def run_cohort_analysis(
                     row_str += f" | {'N/A':>7s}"
             print(row_str)
 
-        # 평균
         avg_str = f"  {'Average':>10s} | {'100%':>7s}"
         for _, row in summary.iterrows():
             avg_str += f" | {row['avg_retention']:>6.1%}"
         print(f"  {'-' * len(header)}")
         print(avg_str)
 
-        # 최대 이탈 구간 식별 (전체 period 기준)
         observed_all = cohort_df[cohort_df["observed"]]
         avg_by_period = (
             observed_all.groupby("period")["retention_rate"]
@@ -431,7 +391,7 @@ def run_cohort_analysis(
                 f"highest drop-off (avg {worst_drop:.1%})"
             )
 
-    # ── 5. Save ──
+    # 5. Save
     paths: dict[str, Path] = {}
 
     paths["cohort_csv"] = output_dir / "cohort_retention.csv"
@@ -452,9 +412,6 @@ def run_cohort_analysis(
         print(f"  {name}: {p.name}")
 
     return paths
-
-
-# ── CLI ──────────────────────────────────────────────────────────
 
 
 def main() -> None:

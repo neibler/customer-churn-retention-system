@@ -27,23 +27,19 @@ def run_simulate(sim_mode: str) -> None:
 
 
 def run_train() -> None:
-    """Train churn prediction model. (stub)"""
     print("[Train] Training pipeline not yet implemented.")
 
 
 def run_uplift() -> None:
-    """Run uplift modeling. (stub)"""
     print("[Uplift] Uplift modeling not yet implemented.")
 
 
 def run_optimize(budget: float | None) -> None:
-    """Run ROI optimization. (stub)"""
     budget_str = f"{budget:,.0f}" if budget is not None else "unlimited"
     print(f"[Optimize] Optimization not yet implemented. Budget: {budget_str}")
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description="Customer churn retention system entrypoint"
     )
@@ -69,7 +65,6 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Entrypoint: dispatch to the selected mode."""
     args = parse_args()
 
     if args.mode == "simulate":
