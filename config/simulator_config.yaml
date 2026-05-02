@@ -197,3 +197,8 @@ temporal_drift:
     peak_multiplier: 0.7    # 이탈 확률 감소 (활동 증가)
     off_peak_months: [2, 3]
     off_peak_multiplier: 1.2
+
+churn_schedule:
+  decay_window_days: 30                  # 이탈 일자 며칠 전부터 행동 감쇠 시작 (Phase 2에서 사용)
+  pre_churn_visit_decay: 0.4             # 이탈 직전 방문빈도 평소 대비 비율 (Phase 2에서 사용, 리서치: 40%)
+  pre_churn_purchase_gap_multiplier: 1.5 # 구매주기 연장 배율 (Phase 2에서 사용, 리서치: 1.5배)
