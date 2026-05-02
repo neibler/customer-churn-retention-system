@@ -94,7 +94,7 @@ def compute_churn_prob(
 ) -> float:
     """Compute effective churn probability for a given month with temporal drift.
 
-    calendar_month: actual calendar month (1–12) for seasonality. Falls back to
+    calendar_month: actual calendar month (1-12) for seasonality. Falls back to
     elapsed_months + 1 so existing call-sites without it still work.
     """
     base = persona_cfg["base_churn_prob"]
