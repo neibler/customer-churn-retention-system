@@ -153,16 +153,67 @@ def sample_churn_day(
     drift_cfg: dict,
     rng: np.random.Generator,
 ) -> int | None:
-    """Pre-sample when this customer churns within n_days; None if they survive."""
+    """Pre-sample when this customer churns within n_days; None if they survive.
+
+    When sample_churn_day_flat_prob is set in drift_cfg, uses a persona-independent
+    flat daily probability starting from sample_churn_day_start_day. This decouples
+    scheduling from churn risk, so that scheduled vs unscheduled groups have similar
+    risk profiles and the scheduled_detection_factor can drive P(churn|sched) below
+    P(churn|no_sched).
+
+    When flat_prob is not set, falls back to the legacy scale-based logic.
+    """
+    flat_prob = drift_cfg.get("sample_churn_day_flat_prob", 0.0)
+    if flat_prob > 0:
+        start_day = drift_cfg.get("sample_churn_day_start_day", 0)
+        for day in range(start_day, n_days):
+            if rng.random() < flat_prob:
+                return day
+        return None
+
     base = persona_cfg["base_churn_prob"]
     monthly_increase = drift_cfg["churn_prob_increase_per_month"]
+    scale = drift_cfg.get("sample_churn_day_scale", 1.0)
     for day in range(n_days):
         elapsed_months = day // 30
         monthly_prob = base + monthly_increase * elapsed_months
         daily_prob = 1.0 - (1.0 - min(monthly_prob, 1.0)) ** (1.0 / 30.0)
-        if rng.random() < daily_prob:
+        if rng.random() < min(daily_prob * scale, 1.0):
             return day
     return None
+
+
+def compute_decay_factor(
+    current_day: int,
+    scheduled_churn_day: int | None,
+    decay_window: int = 30,
+    min_factor: float = 0.5,
+) -> float:
+    """이탈 예정일까지 남은 기간에 따라 행동 감쇠 계수 계산.
+
+    이탈 예정일 decay_window일 전부터 선형 감쇠 시작.
+    이탈 당일에는 min_factor 수준까지 감소.
+
+    Args:
+        current_day: 현재 시뮬레이션 날짜 (0-based)
+        scheduled_churn_day: Phase 1에서 샘플링된 이탈 예정일
+        decay_window: 감쇠 시작 시점 (이탈 D-N일)
+        min_factor: 이탈 당일 최소 행동 비율 (0.5 = 평소의 50%)
+
+    Returns:
+        float: 1.0(변화없음) ~ min_factor(최대감쇠) 사이 값
+    """
+    if scheduled_churn_day is None:
+        return 1.0
+    days_until_churn = scheduled_churn_day - current_day
+    if days_until_churn >= decay_window:
+        return 1.0
+    if days_until_churn < 0:   # past scheduled churn day: survived → recover
+        return 1.0
+    if days_until_churn == 0:  # peak decay on scheduled churn day
+        return min_factor
+    ratio = days_until_churn / decay_window
+    return min_factor + (1.0 - min_factor) * ratio
 
 
 def simulate_customer(
@@ -172,13 +223,14 @@ def simulate_customer(
     config: dict,
     rng: np.random.Generator,
     sim_mode: str,
-) -> tuple[list[dict], bool]:
-    """Simulate one customer's full timeline. Returns (events, churned)."""
+) -> tuple[list[dict], bool, int | None]:
+    """Simulate one customer's full timeline. Returns (events, churned, scheduled_churn_day)."""
     mode_cfg = config["simulation"][sim_mode]
     n_days: int = mode_cfg["n_days"]
     persona_cfg = config["personas"][persona_key]
     marketing_cfg = config["marketing"]
     drift_cfg = config["temporal_drift"]
+    churn_schedule_cfg = config["churn_schedule"]
     churn_def = config["churn_definition"]
     start_date = date.fromisoformat(config["simulation"]["start_date"])
 
@@ -227,6 +279,8 @@ def simulate_customer(
                 daily_churn_prob *= 0.5
             elif day < active_churn_boosted_until:
                 daily_churn_prob *= 2.0
+            if scheduled_churn_day is not None:
+                daily_churn_prob *= churn_schedule_cfg.get("scheduled_detection_factor", 1.0)
             if rng.random() < daily_churn_prob:
                 churned = True
                 churn_day = day
@@ -260,11 +314,40 @@ def simulate_customer(
                 if roll < response["push_notification"]:
                     active_churn_suppressed_until = max(active_churn_suppressed_until, day + 7)
 
-        if day in visit_days:
+        decay_factor = compute_decay_factor(
+            current_day=day,
+            scheduled_churn_day=scheduled_churn_day,
+            decay_window=churn_schedule_cfg["decay_window_days"],
+            min_factor=churn_schedule_cfg["pre_churn_visit_decay"],
+        )
+        if day in visit_days and rng.random() < decay_factor:
             last_visit_day = day
-            n_events = int(rng.integers(1, 6))
+            session_decay = compute_decay_factor(
+                current_day=day,
+                scheduled_churn_day=scheduled_churn_day,
+                decay_window=14,
+                min_factor=0.5,
+            )
+            max_events = max(1, int(5 * session_decay))
+            n_events = int(rng.integers(1, max_events + 1))
             for _ in range(n_events):
-                etype = pick_event_type(persona_cfg["event_weights"], rng)
+                cart_decay = compute_decay_factor(
+                    current_day=day,
+                    scheduled_churn_day=scheduled_churn_day,
+                    decay_window=14,
+                    min_factor=0.5,
+                )
+                remove_prob_multiplier = 1.0 + (1.0 - cart_decay)
+                event_weights = persona_cfg["event_weights"]
+                if remove_prob_multiplier > 1.0 and "remove_from_cart" in event_weights:
+                    boosted_weights = dict(event_weights)
+                    boosted_weights["remove_from_cart"] = min(
+                        event_weights["remove_from_cart"] * remove_prob_multiplier,
+                        1.0,
+                    )
+                    etype = pick_event_type(boosted_weights, rng)
+                else:
+                    etype = pick_event_type(event_weights, rng)
                 order_value = 0
                 if etype == "purchase":
                     if day < next_purchase_eligible_day:
@@ -288,7 +371,16 @@ def simulate_customer(
                             )
                         ),
                     )
-                    next_purchase_eligible_day = day + cycle
+                    purchase_decay = compute_decay_factor(
+                        current_day=day,
+                        scheduled_churn_day=scheduled_churn_day,
+                        decay_window=14,
+                        min_factor=0.0,
+                    )
+                    gap_multiplier = 1.0 + (
+                        churn_schedule_cfg["pre_churn_purchase_gap_multiplier"] - 1.0
+                    ) * (1.0 - purchase_decay)
+                    next_purchase_eligible_day = day + max(1, int(cycle * gap_multiplier))
                 events.append(
                     {
                         "customer_id": customer_id,
@@ -319,7 +411,7 @@ def simulate_customer(
             churn_day = day
             break
 
-    return events, churned
+    return events, churned, scheduled_churn_day
 
 
 def run_simulation(config_path: str | Path, mode: str = "full") -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -338,11 +430,12 @@ def run_simulation(config_path: str | Path, mode: str = "full") -> tuple[pd.Data
 
     all_events: list[dict] = []
     churn_labels: list[int] = []
+    scheduled_churn_days: list[int | None] = []
 
     for idx, row in customers_df.iterrows():
         # Per-customer derived seed so simulation order doesn't affect results
         cust_rng = np.random.default_rng(seed + idx)
-        events, churned = simulate_customer(
+        events, churned, sched_day = simulate_customer(
             customer_id=row["customer_id"],
             persona_key=row["persona"],
             is_treatment=int(row["is_treatment"]),
@@ -352,11 +445,13 @@ def run_simulation(config_path: str | Path, mode: str = "full") -> tuple[pd.Data
         )
         all_events.extend(events)
         churn_labels.append(int(churned))
+        scheduled_churn_days.append(sched_day)
 
         if (idx + 1) % 2000 == 0:
             print(f"[Simulator] Progress: {idx + 1:,}/{n_customers:,} customers processed...")
 
     customers_df["churned"] = churn_labels
+    customers_df["scheduled_churn_day"] = scheduled_churn_days
     event_columns = [
         "customer_id",
         "event_date",

@@ -29,7 +29,7 @@ personas:
     purchase_cycle_std: 2.0
     avg_order_value: 150000
     avg_order_value_std: 40000
-    base_churn_prob: 0.005
+    base_churn_prob: 0.013
     marketing_response:
       coupon: 0.05               # 전환 증가 확률
       push_notification: 0.03
@@ -53,7 +53,7 @@ personas:
     purchase_cycle_std: 4.0
     avg_order_value: 60000
     avg_order_value_std: 20000
-    base_churn_prob: 0.009
+    base_churn_prob: 0.023
     marketing_response:
       coupon: 0.12
       push_notification: 0.08
@@ -77,7 +77,7 @@ personas:
     purchase_cycle_std: 7.0
     avg_order_value: 30000
     avg_order_value_std: 10000
-    base_churn_prob: 0.015
+    base_churn_prob: 0.038
     marketing_response:
       coupon: 0.25
       push_notification: 0.05
@@ -101,7 +101,7 @@ personas:
     purchase_cycle_std: 15.0
     avg_order_value: 45000
     avg_order_value_std: 25000
-    base_churn_prob: 0.016
+    base_churn_prob: 0.040
     marketing_response:
       coupon: 0.10
       push_notification: 0.12
@@ -125,7 +125,7 @@ personas:
     purchase_cycle_std: 20.0
     avg_order_value: 25000
     avg_order_value_std: 15000
-    base_churn_prob: 0.022
+    base_churn_prob: 0.055
     marketing_response:
       coupon: 0.15
       push_notification: 0.08
@@ -149,7 +149,7 @@ personas:
     purchase_cycle_std: 10.0
     avg_order_value: 35000
     avg_order_value_std: 20000
-    base_churn_prob: 0.016
+    base_churn_prob: 0.040
     marketing_response:
       coupon: 0.20
       push_notification: 0.18
@@ -191,6 +191,8 @@ marketing:
 # 행동 변화 모델: 시간 경과에 따른 이탈 확률 drift
 temporal_drift:
   churn_prob_increase_per_month: 0.0008  # 월별 기본 이탈 확률 증가량
+  sample_churn_day_flat_prob: 0.009      # 페르소나 독립적 flat 일별 스케줄 확률 — (1-0.009)^150≈26% None
+  sample_churn_day_start_day: 30         # decay_window 이후부터 스케줄 시작
   seasonality:
     enabled: true
     peak_months: [11, 12]   # 11~12월 성수기
@@ -200,5 +202,6 @@ temporal_drift:
 
 churn_schedule:
   decay_window_days: 30                  # 이탈 일자 며칠 전부터 행동 감쇠 시작 (Phase 2에서 사용)
-  pre_churn_visit_decay: 0.4             # 이탈 직전 방문빈도 평소 대비 비율 (Phase 2에서 사용, 리서치: 40%)
+  pre_churn_visit_decay: 0.2             # 이탈 직전 방문빈도 평소 대비 비율 (Phase 2에서 사용, 리서치: 40% → 20%로 강화)
   pre_churn_purchase_gap_multiplier: 1.5 # 구매주기 연장 배율 (Phase 2에서 사용, 리서치: 1.5배)
+  scheduled_detection_factor: 0.35      # scheduled 고객의 random daily churn 억제 — intervention 효과 모델링
