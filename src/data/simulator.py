@@ -428,6 +428,13 @@ def run_simulation(config_path: str | Path, mode: str = "full") -> tuple[pd.Data
 
     customers_df = build_customers(n_customers, config, rng)
 
+    # signup_date: 시뮬레이션 시작일 ~ 종료일/2 사이 균등 분포
+    _sim_start = date.fromisoformat(config["simulation"]["start_date"])
+    signup_offsets = rng.integers(0, mode_cfg["n_days"] // 2 + 1, size=n_customers)
+    customers_df["signup_date"] = [
+        (_sim_start + timedelta(days=int(d))).isoformat() for d in signup_offsets
+    ]
+
     all_events: list[dict] = []
     churn_labels: list[int] = []
     scheduled_churn_days: list[int | None] = []
