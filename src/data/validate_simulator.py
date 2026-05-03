@@ -11,8 +11,11 @@ from pathlib import Path
 from datetime import datetime
 from scipy.optimize import curve_fit
 
-# 한글 폰트 설정 (Windows)
-plt.rcParams["font.family"] = "Malgun Gothic"
+# 한글 폰트: 가용 폰트 중 우선순위 선택 (Windows/macOS/Linux 순)
+import matplotlib.font_manager as _fm
+_KOREAN_FONTS = ["Malgun Gothic", "AppleGothic", "Noto Sans CJK KR", "NanumGothic"]
+_available = {f.name for f in _fm.fontManager.ttflist}
+plt.rcParams["font.family"] = next((f for f in _KOREAN_FONTS if f in _available), "DejaVu Sans")
 plt.rcParams["axes.unicode_minus"] = False
 
 def _read_sim_start(config_path: str = "config/simulator_config.yaml") -> pd.Timestamp:
@@ -477,12 +480,12 @@ def main() -> None:
 
     # 2. Top 5 신호
     top5 = extract_top5_signals(events, customers)
-    print(f"\n[2] 이탈 직전 Top 5 행동 신호:")
+    print("\n[2] 이탈 직전 Top 5 행동 신호:")
     print(top5.to_string(index=False))
 
     # 3. 코호트 리텐션
     cohort_df = compute_cohort_retention(events, customers)
-    print(f"\n[3] 코호트 리텐션:")
+    print("\n[3] 코호트 리텐션:")
     print(cohort_df.map(lambda v: f"{v:.1%}" if not pd.isna(v) else "-").to_string())
 
     # 4. 멱함수 적합
@@ -493,20 +496,20 @@ def main() -> None:
     if not np.isnan(a):
         print(f"\n[4] 멱함수 회귀: y = {a:.3f} * x^{b:.3f},  R² = {r2:.3f}")
     else:
-        print(f"\n[4] 멱함수 회귀: 적합 실패")
+        print("\n[4] 멱함수 회귀: 적합 실패")
     print(f"    목표: R² > 0.85  결과: {'PASS' if r2_ok else 'FAIL'}")
 
     # 5. 시각화
     Path("results").mkdir(exist_ok=True)
     plot_cohort_retention(cohort_df, "results/cohort_retention.png")
-    print(f"\n[5] 그래프 저장: results/cohort_retention.png")
+    print("\n[5] 그래프 저장: results/cohort_retention.png")
 
     # 6. 리포트 저장
     save_validation_report(
         decay_stats, top5, cohort_df, (a, b, r2),
         "results/v2_validation_report.md",
     )
-    print(f"[6] 리포트 저장: results/v2_validation_report.md")
+    print("[6] 리포트 저장: results/v2_validation_report.md")
 
     print("\n" + "=" * 60)
     print("검증 완료")
