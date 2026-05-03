@@ -6,6 +6,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import yaml
 from pathlib import Path
 from datetime import datetime
 from scipy.optimize import curve_fit
@@ -14,7 +15,14 @@ from scipy.optimize import curve_fit
 plt.rcParams["font.family"] = "Malgun Gothic"
 plt.rcParams["axes.unicode_minus"] = False
 
-SIM_START = pd.Timestamp("2024-01-01")
+def _read_sim_start(config_path: str = "config/simulator_config.yaml") -> pd.Timestamp:
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            return pd.Timestamp(yaml.safe_load(f)["simulation"]["start_date"])
+    except (FileNotFoundError, KeyError):
+        return pd.Timestamp("2024-01-01")
+
+SIM_START = _read_sim_start()
 
 
 def load_data(data_dir: str = "data/raw") -> tuple:
@@ -138,7 +146,12 @@ def compute_cohort_retention(events: pd.DataFrame, customers: pd.DataFrame) -> p
     """가입월(signup_date) 기준 코호트별 M1, M3, M6, M12 리텐션율 산출.
 
     리텐션 정의: signup_date 기준 N개월 시작일로부터 30일 창 내 이벤트 1건 이상.
-    signup_date 컬럼 미존재 시 SIM_START(2024-01-01)로 대체.
+    signup_date 컬럼 미존재 시 SIM_START로 대체.
+
+    Known limitation: signup_date는 시뮬레이션 완료 후 사후 배정되므로
+    signup_date 이전에 이탈한 고객이 코호트 분모에 포함된다.
+    이들은 M1 창에 이벤트 없음 → 미유지로 집계되어 초기 코호트 리텐션이
+    낮게 측정되지만, 가입 후 미활성화 비율로 해석 가능하다.
 
     Returns:
         DataFrame: index=cohort_month(str), columns=[M1, M3, M6, M12]
@@ -353,6 +366,7 @@ def save_validation_report(
         f"- 결과: {'PASS' if decay_ok else 'FAIL'}",
         "",
         "## 2. 이탈 직전 Top 5 행동 신호",
+        "",
         "| 순위 | 이벤트 타입 | 이탈 그룹 비율 | 정상 그룹 비율 | 차이 |",
         "|---|---|---|---|---|",
     ]
@@ -366,6 +380,7 @@ def save_validation_report(
     lines += [
         "",
         "## 3. 코호트 리텐션",
+        "",
         "| 코호트 (가입월) | M1 | M3 | M6 | M12 |",
         "|---|---|---|---|---|",
     ]
@@ -403,7 +418,7 @@ def save_validation_report(
         m1_trend = "M1 변화"
     r2_str = f"{r2:.3f}" if not np.isnan(r2) else "N/A"
 
-    lines += ["", "## 5. 코호트 리텐션 (참고 정보)"]
+    lines += ["", "## 5. 코호트 리텐션 (참고 정보)", ""]
     lines += ["| 코호트 | M1 | M3 | M6 | M12 |", "|---|---|---|---|---|"]
     for cohort in cohort_df.index:
         m1v = cohort_df.loc[cohort, "M1"]
@@ -431,7 +446,7 @@ def save_validation_report(
     if not decay_ok:
         fail_items.append(f"행동 감쇠 비율 {decay_stats['ratio']:.3f} (목표: 0.4~0.7)")
     if not r2_ok:
-        fail_items.append(f"멱함수 R² {r2:.3f if not np.isnan(r2) else 'N/A'} (목표: >0.85)")
+        fail_items.append(f"멱함수 R² {r2_str} (목표: >0.85)")
 
     if all_pass and not fail_items:
         lines.append("**v2 검증 통과**")
