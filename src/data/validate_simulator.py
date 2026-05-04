@@ -3,6 +3,7 @@
 이탈 직전 행동 감쇠가 정상 동작하는지 통계 검증하고,
 코호트 리텐션 곡선을 시각화하며, 검증 리포트를 자동 생성한다.
 """
+import sys
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -511,9 +512,13 @@ def main() -> None:
     )
     print("[6] 리포트 저장: results/v2_validation_report.md")
 
+    overall_ok = decay_ok and r2_ok
     print("\n" + "=" * 60)
-    print("검증 완료")
+    print("검증 완료" if overall_ok else "검증 실패")
     print("=" * 60)
+
+    if not overall_ok:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
