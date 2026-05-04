@@ -28,6 +28,9 @@ uplift_segment_df = pd.DataFrame(data=[], columns=[])
 budget = 0
 expected_customers_saved = 0
 expected_roi = 0
+# Row 3 : 리텐션 대상 고객 데이터
+# TODO : Load data into dataframe
+retention_target_customer_df = pd.DataFrame(data=[], columns=["Rank", "ID", "Churn", "CLV", "Segment", "Action"])
 
 
 # Row 1
@@ -69,5 +72,8 @@ budget_optimization_info_area.text(f"Expected ROI: {expected_roi:.1f}%")
 
 # Row 3
 retention_target_customer = st.container(border=True)
+retention_target_customer.subheader("리텐션 대상 고객 Top 10 - 우선순위순")
+retention_target_customer.table(retention_target_customer_df)
+
 # Row 4
 ab_test_summary = st.container(border=True)
