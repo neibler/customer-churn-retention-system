@@ -10,10 +10,13 @@ st.set_page_config(page_title="Customer Churn & Retention Optimization Dashboard
 st.title("Customer Churn & Retention Optimization Dashboard")
 
 # TODO : Load data here
+# Row 1 Col 1
 total_customers = 0
 customer_leave_at_risk = 0
 predicted_churn = 0
 model_auc = 0.0
+# TODO : Load data into dataframe
+leave_risk_df = pd.DataFrame(data=[], columns=[])
 
 # Row 1
 row1 = st.container()
@@ -27,8 +30,6 @@ leave_risk_info_area.text(f"At Risk (>0.5): {customer_leave_at_risk:,} ({custome
 leave_risk_info_area.text(f"Predicted Churn: {predicted_churn:,}")
 leave_risk_chart_area = leave_risk.container(gap=None)
 leave_risk_chart_area.text(f"Model AUC: {model_auc:.3f}")
-# TODO : Load data into dataframe
-leave_risk_df = pd.DataFrame(data=[], columns=[])
 leave_risk_chart_area.bar_chart(leave_risk_df)
 # Row 2
 row2 = st.container()
