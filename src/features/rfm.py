@@ -446,6 +446,7 @@ def run_rfm_pipeline(
 
 
 def main() -> None:
+    """CLI entry point for RFM + behavioral change-rate feature computation."""
     parser = argparse.ArgumentParser(description="RFM + behavioral change-rate features")
     parser.add_argument("--data-dir", default="data/raw")
     parser.add_argument("--output-dir", default="data/processed")

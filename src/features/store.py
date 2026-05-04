@@ -60,6 +60,7 @@ INF_REPLACEMENT: float = np.nan
 # ---------------------------------------------------------------------------
 
 def _load_raw(data_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """시뮬레이터가 생성한 customers.csv / events.csv 를 로드하고 날짜 파싱."""
     data_dir = Path(data_dir)
     customers = pd.read_csv(data_dir / "customers.csv")
     events = pd.read_csv(data_dir / "events.csv")
@@ -384,6 +385,7 @@ def load_feature_store(
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    """CLI entry point for the integrated feature store pipeline."""
     parser = argparse.ArgumentParser(description="Build feature store with missing/outlier handling")
     parser.add_argument("--data-dir", default="data/raw")
     parser.add_argument("--output-dir", default="data/processed")

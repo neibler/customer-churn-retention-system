@@ -47,6 +47,10 @@ SEARCH_TO_PURCHASE_WINDOW_DAYS: int = 7
 # ---------------------------------------------------------------------------
 
 def load_data(data_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Load simulator outputs and parse date columns.
+
+    Returns (customers, events) with parsed signup_date / event_date.
+    """
     data_dir = Path(data_dir)
     customers = pd.read_csv(data_dir / "customers.csv")
     events = pd.read_csv(data_dir / "events.csv")
@@ -311,6 +315,7 @@ def run_session_pipeline(
 
 
 def main() -> None:
+    """CLI entry point for session + time-based feature computation."""
     parser = argparse.ArgumentParser(description="Session + time-based features")
     parser.add_argument("--data-dir", default="data/raw")
     parser.add_argument("--output-dir", default="data/processed")

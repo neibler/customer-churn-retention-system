@@ -69,6 +69,10 @@ EVENT_VOCAB: tuple[str, ...] = (
 # ---------------------------------------------------------------------------
 
 def load_data(data_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Load simulator outputs and parse date columns.
+
+    Returns (customers, events) with parsed signup_date / event_date.
+    """
     data_dir = Path(data_dir)
     customers = pd.read_csv(data_dir / "customers.csv")
     events = pd.read_csv(data_dir / "events.csv")
@@ -79,6 +83,7 @@ def load_data(data_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def get_analysis_date(events: pd.DataFrame) -> pd.Timestamp:
+    """분석 기준일 = 마지막 이벤트 다음날 (cohort.py / eda.ipynb 와 동일 규칙)."""
     return events["event_date"].max() + pd.Timedelta(days=1)
 
 
@@ -357,6 +362,7 @@ def compute_journey_features(
 
 
 def _classify_stage(row: pd.Series) -> str:
+    """고객 한 명을 여정 단계로 분류한다 (new/first_buy/repeat/loyal/churned)."""
     if int(row["churned"]) == 1:
         return "churned"
     pc = int(row["purchase_count"])
@@ -402,6 +408,7 @@ def run_sequence_pipeline(
     data_dir: str | Path = "data/raw",
     output_dir: str | Path = "data/processed",
 ) -> pd.DataFrame:
+    """시퀀스 + 여정 피처를 산출하고 CSV 로 저장한다."""
     data_dir = Path(data_dir)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -424,6 +431,7 @@ def run_sequence_pipeline(
 
 
 def main() -> None:
+    """CLI entry point for sequence + journey feature computation."""
     parser = argparse.ArgumentParser(description="Sequence + journey features")
     parser.add_argument("--data-dir", default="data/raw")
     parser.add_argument("--output-dir", default="data/processed")
