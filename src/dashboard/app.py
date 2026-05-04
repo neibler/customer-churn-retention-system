@@ -21,6 +21,9 @@ leave_risk_df = pd.DataFrame(data=[], columns=[])
 # Row 1 Col 2 : 코호트 리텐션 분석 데이터
 # TODO : Load data into dataframe
 cohort_retention_df = pd.DataFrame(data=[], columns=[])
+# Row 2 Col 1 : Uplift 세그먼트 분포 데이터
+# TODO : Load data into dataframe
+uplift_segment_df = pd.DataFrame(data=[], columns=[])
 
 # Row 1
 row1 = st.container()
@@ -45,6 +48,11 @@ cohort_retention_chart_area.bar_chart(cohort_retention_df, horizontal=True)
 # Row 2
 row2 = st.container()
 col2_1, col2_2 = row2.columns(2)
+# Row 2 Col 1 : Uplift 세그먼트 분포
+uplift_segment = col2_1.container(border=True)
+uplift_segment.subheader("Uplift 세그먼트 분포")
+uplift_segment_chart_area = uplift_segment.container(gap=None)
+uplift_segment_chart_area.table(uplift_segment_df)
 # Row 3
 retention_target_customer = st.container(border=True)
 # Row 4
