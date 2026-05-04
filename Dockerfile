@@ -5,6 +5,9 @@ WORKDIR /app
 # System dependencies (slim image ships without gcc needed by some wheels)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
+        fontconfig \
+        fonts-nanum \
+    && fc-cache -f -v \
     && rm -rf /var/lib/apt/lists/*
 
 # PyTorch CPU-only must be installed before requirements.txt so that pip
@@ -26,6 +29,10 @@ ENV PYTHONUNBUFFERED=1
 # Create non-root user and switch to it
 RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app
+
+# Clear matplotlib font cache so it picks up newly installed Nanum fonts
+RUN rm -rf /home/appuser/.cache/matplotlib 2>/dev/null || true
+
 USER appuser
 
 CMD ["python", "src/main.py"]

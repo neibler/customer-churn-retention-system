@@ -1,0 +1,39 @@
+# Git
+.git
+.gitignore
+.github
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.coverage
+.venv
+venv
+
+# IDE
+.vscode
+.idea
+
+# 데이터/결과 (컨테이너에서 새로 생성됨)
+data/raw/*
+data/processed/*
+results/*
+models/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!results/.gitkeep
+!models/.gitkeep
+
+# 문서 (Docker 이미지에 불필요)
+docs/
+
+# 시스템
+.DS_Store
+Thumbs.db
+
+# 환경 변수
+.env
+.env.local

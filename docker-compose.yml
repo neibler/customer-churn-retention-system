@@ -1,27 +1,39 @@
 services:
-  app:
+  simulator:
     build: .
-    env_file: .env
+    container_name: churn-simulator
     volumes:
       - ./data:/app/data
       - ./models:/app/models
       - ./results:/app/results
       - ./config:/app/config
-    command: >
-      python src/main.py
-      --mode ${APP_MODE:-simulate}
-      --sim-mode ${SIM_MODE:-full}
+    command: python src/main.py --mode ${APP_MODE:-simulate} --sim-mode ${SIM_MODE:-full}
+
+  validator:
+    build: .
+    container_name: churn-validator
+    depends_on:
+      simulator:
+        condition: service_completed_successfully
+    volumes:
+      - ./data:/app/data
+      - ./results:/app/results
+      - ./config:/app/config
+    command: python src/data/validate_simulator.py
 
   dashboard:
     build: .
-    env_file: .env
+    container_name: churn-dashboard
     ports:
       - "8501:8501"
+    depends_on:
+      validator:
+        condition: service_completed_successfully
     volumes:
       - ./data:/app/data
       - ./models:/app/models
       - ./results:/app/results
-    command: >
-      streamlit run src/dashboard/app.py
-      --server.port=8501
-      --server.address=0.0.0.0
+      - ./config:/app/config
+    command: streamlit run src/dashboard/app.py --server.port=8501 --server.address=0.0.0.0
+    profiles:
+      - dashboard
