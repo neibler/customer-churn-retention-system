@@ -24,6 +24,11 @@ cohort_retention_df = pd.DataFrame(data=[], columns=[])
 # Row 2 Col 1 : Uplift 세그먼트 분포 데이터
 # TODO : Load data into dataframe
 uplift_segment_df = pd.DataFrame(data=[], columns=[])
+# Row 2 Col 2 : 예산 최적화 시뮬레이션 데이터
+budget = 0
+expected_customers_saved = 0
+expected_roi = 0
+
 
 # Row 1
 row1 = st.container()
@@ -53,6 +58,15 @@ uplift_segment = col2_1.container(border=True)
 uplift_segment.subheader("Uplift 세그먼트 분포")
 uplift_segment_chart_area = uplift_segment.container(gap=None)
 uplift_segment_chart_area.table(uplift_segment_df)
+# Row 2 Col 2 : 예산 최적화 시뮬레이션
+budget_optimization = col2_2.container(border=True)
+budget_optimization.subheader("예산 최적화 시뮬레이션")
+budget_optimization_info_area = budget_optimization.container(gap=None)
+budget_optimization_info_area.text(f"Budget: [{budget:,}] KRW")
+budget_optimization_info_area.space()
+budget_optimization_info_area.text(f"Expected Customers Saved: {expected_customers_saved:,}")
+budget_optimization_info_area.text(f"Expected ROI: {expected_roi:.1f}%")
+
 # Row 3
 retention_target_customer = st.container(border=True)
 # Row 4
