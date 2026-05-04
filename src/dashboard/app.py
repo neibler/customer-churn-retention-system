@@ -10,7 +10,7 @@ st.set_page_config(page_title="Customer Churn & Retention Optimization Dashboard
 st.title("Customer Churn & Retention Optimization Dashboard")
 
 # TODO : Load data here
-# Row 1 Col 1
+# Row 1 Col 1 : 이탈 위험 현황 데이터
 total_customers = 0
 customer_leave_at_risk = 0
 customer_leave_at_risk_percentage = customer_leave_at_risk / total_customers if total_customers > 0 else 0
@@ -18,7 +18,7 @@ predicted_churn = 0
 model_auc = 0.0
 # TODO : Load data into dataframe
 leave_risk_df = pd.DataFrame(data=[], columns=[])
-# Row 2 Col 2
+# Row 1 Col 2 : 코호트 리텐션 분석 데이터
 # TODO : Load data into dataframe
 cohort_retention_df = pd.DataFrame(data=[], columns=[])
 
