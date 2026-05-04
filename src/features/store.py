@@ -308,15 +308,27 @@ def build_feature_store(
 
     print(f"[Store] Combined shape: {fs.shape}")
 
-    # 3. 결측 처리
+    # 3. 결측 처리 (사전에 ±inf 도 NaN 으로 통일)
+    fs = fs.replace([np.inf, -np.inf], np.nan)
     fs, missing_report = handle_missing_values(fs)
     print(f"[Store] Missing handled: {len(missing_report)} columns had NaNs")
 
-    # 4. 이상치 처리
+    # 4. 이상치 처리 (winsorization 과정에서 ±inf → NaN 변환이 한 번 더 일어날 수 있음)
     fs, outlier_report = handle_outliers(fs)
     print(f"[Store] Outliers winsorized: {len(outlier_report)} columns clipped")
 
-    # 5. 저장
+    # 5. 안전망: 이상치 처리 후 잔존 NaN 이 있으면 한 번 더 충전
+    residual_nan_cols = fs.columns[fs.isna().any()].tolist()
+    if residual_nan_cols:
+        fs, residual_report = handle_missing_values(fs)
+        print(
+            f"[Store] Residual NaNs after outlier handling: filled {len(residual_report)} columns"
+        )
+        # missing_report 에 잔존 처리 내역 병합
+        for col, info in residual_report.items():
+            missing_report[f"{col}__post_outlier"] = info
+
+    # 6. 저장
     if save:
         meta = {
             "analysis_date": str(analysis_date.date()),

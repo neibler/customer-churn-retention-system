@@ -159,8 +159,13 @@ def _search_to_purchase_rate(
         # 검색이 아예 없으면 전부 NaN
         return pd.Series(dtype=float)
 
-    # 검색이 있는 고객에 한해서만 계산
+    # 검색이 있는 고객에 한해서만 계산. 같은 날 여러 검색이 있을 수 있으므로
+    # 각 검색 이벤트를 별개로 카운트하기 위해 search_id 를 부여한다.
     purchases = purchases.rename(columns={"event_date": "purchase_date"})
+
+    searches = searches.reset_index(drop=True).reset_index().rename(
+        columns={"index": "search_id"}
+    )
 
     joined = searches.merge(purchases, on="customer_id", how="left")
     joined["gap_days"] = (joined["purchase_date"] - joined["event_date"]).dt.days
@@ -168,9 +173,14 @@ def _search_to_purchase_rate(
         (joined["gap_days"] >= 0) & (joined["gap_days"] <= window_days)
     ).astype(int)
 
-    # 한 검색당 적어도 1번 전환되면 1, 아니면 0
-    per_search = joined.groupby(["customer_id", "event_date"])["converted"].max()
-    rate = per_search.groupby(level=0).mean()
+    # 각 검색 이벤트별로 윈도 내 구매 1건 이상이면 1
+    per_search = joined.groupby("search_id")["converted"].max()
+    # 고객별 평균 = 그 고객의 검색 중 전환된 비율
+    rate = (
+        searches.assign(converted=searches["search_id"].map(per_search).fillna(0))
+        .groupby("customer_id")["converted"]
+        .mean()
+    )
     return rate.astype(float)
 
 

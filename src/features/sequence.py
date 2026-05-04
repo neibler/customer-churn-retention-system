@@ -113,7 +113,7 @@ def compute_sequence_features(
     if events.empty:
         for col in [
             "seq_entropy", "seq_unique_event_types", "seq_transition_count",
-            "seq_dominant_event", "seq_purchase_position", "behavior_cluster_id",
+            "seq_purchase_position", "seq_dominant_event_id", "behavior_cluster_id",
         ]:
             base[col] = np.nan
         return base
@@ -158,7 +158,12 @@ def compute_sequence_features(
     base = base.merge(purch_pos, on="customer_id", how="left")
 
     # 6. 행동 패턴 클러스터 ID (전체 이벤트 분포 기반)
-    base["behavior_cluster_id"] = _behavior_cluster_ids(events, n_clusters=n_clusters)
+    # _behavior_cluster_ids 는 customer_id 를 인덱스로 가진 Series 를 반환하므로
+    # merge 로 customer_id 기준 정렬을 보장한다 (직접 할당 시 RangeIndex 와 어긋남).
+    cluster_ids = _behavior_cluster_ids(events, n_clusters=n_clusters).rename(
+        "behavior_cluster_id"
+    )
+    base = base.merge(cluster_ids, left_on="customer_id", right_index=True, how="left")
 
     # 카테고리형 → 정수 인코딩
     base["seq_dominant_event_id"] = base["seq_dominant_event"].map(
