@@ -31,6 +31,9 @@ expected_roi = 0
 # Row 3 : 리텐션 대상 고객 데이터
 # TODO : Load data into dataframe
 retention_target_customer_df = pd.DataFrame(data=[], columns=["Rank", "ID", "Churn", "CLV", "Segment", "Action"])
+# Row 4 : A/B 테스트 결과 요약
+# TODO : Load data into dataframe
+ab_test_summary_df = pd.DataFrame(data=[], columns=["Campaign", "Control", "Treatment", "Lift", "p-value", "Status"])
 
 
 # Row 1
@@ -77,3 +80,5 @@ retention_target_customer.table(retention_target_customer_df)
 
 # Row 4
 ab_test_summary = st.container(border=True)
+ab_test_summary.subheader("A/B 테스트 결과 요약")
+ab_test_summary.table(ab_test_summary_df)
