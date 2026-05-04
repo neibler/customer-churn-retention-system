@@ -3,7 +3,7 @@
 Run with:
     streamlit run src/dashboard/app.py
 """
-
+import pandas as pd
 import streamlit as st
 
 st.set_page_config(page_title="Customer Churn & Retention Optimization Dashboard", layout="wide")
