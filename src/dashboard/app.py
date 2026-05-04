@@ -13,6 +13,7 @@ st.title("Customer Churn & Retention Optimization Dashboard")
 # Row 1 Col 1
 total_customers = 0
 customer_leave_at_risk = 0
+customer_leave_at_risk_percentage = customer_leave_at_risk / total_customers if total_customers > 0 else 0
 predicted_churn = 0
 model_auc = 0.0
 # TODO : Load data into dataframe
@@ -26,7 +27,7 @@ leave_risk = col1_1.container(border=True)
 leave_risk.subheader("이탈 위험 현황")
 leave_risk_info_area = leave_risk.container(gap=None)
 leave_risk_info_area.text(f"Total Customers: {total_customers:,}")
-leave_risk_info_area.text(f"At Risk (>0.5): {customer_leave_at_risk:,} ({customer_leave_at_risk/total_customers:.1%})")
+leave_risk_info_area.text(f"At Risk (>0.5): {customer_leave_at_risk:,} ({customer_leave_at_risk_percentage:.1%})")
 leave_risk_info_area.text(f"Predicted Churn: {predicted_churn:,}")
 leave_risk_chart_area = leave_risk.container(gap=None)
 leave_risk_chart_area.text(f"Model AUC: {model_auc:.3f}")
