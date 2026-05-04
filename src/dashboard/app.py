@@ -18,6 +18,9 @@ predicted_churn = 0
 model_auc = 0.0
 # TODO : Load data into dataframe
 leave_risk_df = pd.DataFrame(data=[], columns=[])
+# Row 2 Col 2
+# TODO : Load data into dataframe
+cohort_retention_df = pd.DataFrame(data=[], columns=[])
 
 # Row 1
 row1 = st.container()
@@ -32,6 +35,13 @@ leave_risk_info_area.text(f"Predicted Churn: {predicted_churn:,}")
 leave_risk_chart_area = leave_risk.container(gap=None)
 leave_risk_chart_area.text(f"Model AUC: {model_auc:.3f}")
 leave_risk_chart_area.bar_chart(leave_risk_df)
+# Row 1 Col 2 : 코호트 리텐션 분석 패널
+cohort_retention = col1_2.container(border=True)
+cohort_retention.subheader("코호트 리텐션 분석")
+cohort_retention_chart_area = cohort_retention.container(gap=None)
+cohort_retention_chart_area.text("Retention Curve by Cohort")
+cohort_retention_chart_area.bar_chart(cohort_retention_df, horizontal=True)
+
 # Row 2
 row2 = st.container()
 col2_1, col2_2 = row2.columns(2)
