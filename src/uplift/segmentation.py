@@ -209,6 +209,7 @@ def run_segmentation_pipeline(
     """전체 6세그먼트 파이프라인 실행."""
     data_dir   = Path(data_dir)
     output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. 입력 로드
     print("[Segment] 데이터 로딩...")
@@ -248,6 +249,7 @@ def run_segmentation_pipeline(
 
 
 def main() -> None:
+    """CLI 진입점 — 인자 파싱 후 run_segmentation_pipeline 실행."""
     parser = argparse.ArgumentParser(description="6세그먼트 분류 & priority score")
     parser.add_argument("--data-dir",   default="data/raw", help="customers.csv 위치")
     parser.add_argument("--output-dir", default="results",  help="결과 디렉토리")

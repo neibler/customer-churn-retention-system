@@ -26,7 +26,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_predict, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
@@ -111,6 +111,7 @@ class TLearner:
     """
 
     def __init__(self, random_state: int = RANDOM_STATE):
+        """GradientBoostingClassifier 기반 Treatment/Control 모델 초기화."""
         self.model_t = GradientBoostingClassifier(
             n_estimators=200, max_depth=4, learning_rate=0.05,
             subsample=0.8, random_state=random_state
@@ -122,6 +123,7 @@ class TLearner:
         self.feature_cols_: list[str] = []
 
     def fit(self, X: pd.DataFrame, y: pd.Series, t: pd.Series) -> "TLearner":
+        """Treatment/Control 각각 별도 모델 학습."""
         self.feature_cols_ = list(X.columns)
         self.model_t.fit(X[t == 1], y[t == 1])
         self.model_c.fit(X[t == 0], y[t == 0])
@@ -135,6 +137,7 @@ class TLearner:
         return p0 - p1
 
     def predict_churn_control(self, X: pd.DataFrame) -> np.ndarray:
+        """Control 모델 기반 이탈 확률 반환."""
         return self.model_c.predict_proba(X)[:, 1]
 
 
@@ -149,6 +152,7 @@ class XLearner:
     """
 
     def __init__(self, random_state: int = RANDOM_STATE):
+        """Stage 1~3 학습 모델 및 Propensity 스케일러 초기화."""
         self.mu0 = GradientBoostingClassifier(
             n_estimators=150, max_depth=3, learning_rate=0.05,
             subsample=0.8, random_state=random_state
@@ -157,10 +161,10 @@ class XLearner:
             n_estimators=150, max_depth=3, learning_rate=0.05,
             subsample=0.8, random_state=random_state
         )
-        self.tau0 = RandomForestClassifier(
+        self.tau0 = RandomForestRegressor(
             n_estimators=100, max_depth=4, random_state=random_state
         )
-        self.tau1 = RandomForestClassifier(
+        self.tau1 = RandomForestRegressor(
             n_estimators=100, max_depth=4, random_state=random_state
         )
         self.propensity = LogisticRegression(max_iter=1000, random_state=random_state)
@@ -168,6 +172,7 @@ class XLearner:
         self.feature_cols_: list[str] = []
 
     def fit(self, X: pd.DataFrame, y: pd.Series, t: pd.Series) -> "XLearner":
+        """Stage 1 base learner → Stage 2 imputed effect → Stage 3 propensity 순서로 학습."""
         self.feature_cols_ = list(X.columns)
         Xv = X.values.astype(float)
 
@@ -182,12 +187,9 @@ class XLearner:
         d1 = y.values[mask_t] - self.mu0.predict_proba(Xv[mask_t])[:, 1]
         d0 = self.mu1.predict_proba(Xv[mask_c])[:, 1] - y.values[mask_c]
 
-        # binarise for RF (양수=효과있음 라벨)
-        d1_bin = (d1 > 0).astype(int)
-        d0_bin = (d0 > 0).astype(int)
-
-        self.tau1.fit(Xv[mask_t], d1_bin)
-        self.tau0.fit(Xv[mask_c], d0_bin)
+        # Stage 2: continuous imputed effects (Regressor 사용으로 신호 손실 없음)
+        self.tau1.fit(Xv[mask_t], d1)
+        self.tau0.fit(Xv[mask_c], d0)
 
         # Propensity
         Xs = self.scaler.fit_transform(Xv)
@@ -199,19 +201,21 @@ class XLearner:
         return self
 
     def predict_cate(self, X: pd.DataFrame) -> np.ndarray:
+        """Propensity Score 가중 평균으로 CATE 추정."""
         Xv = X.values.astype(float)
         Xs = self.scaler.transform(Xv)
 
         e = self.propensity.predict_proba(Xs)[:, 1].clip(0.05, 0.95)
 
-        tau1_score = self.tau1.predict_proba(Xv)[:, 1] - 0.5   # centered
-        tau0_score = self.tau0.predict_proba(Xv)[:, 1] - 0.5
+        tau1_score = self.tau1.predict(Xv)
+        tau0_score = self.tau0.predict(Xv)
 
         # Weighted average
         cate = (1 - e) * tau1_score + e * tau0_score
         return cate
 
     def predict_churn_control(self, X: pd.DataFrame) -> np.ndarray:
+        """mu0 모델 기반 Control 그룹 이탈 확률 반환."""
         return self.mu0.predict_proba(X.values.astype(float))[:, 1]
 
 
@@ -499,6 +503,7 @@ def run_uplift_pipeline(
 
 
 def main() -> None:
+    """CLI 진입점 — 인자 파싱 후 run_uplift_pipeline 실행."""
     parser = argparse.ArgumentParser(description="Uplift Modeling (T-Learner + X-Learner)")
     parser.add_argument("--data-dir",   default="data/raw", help="시뮬레이터 출력 디렉토리")
     parser.add_argument("--output-dir", default="results",  help="결과 저장 디렉토리")

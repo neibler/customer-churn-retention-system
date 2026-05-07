@@ -129,7 +129,7 @@ def predict_clv(
         summary["monetary_value"],
         time=months,
         discount_rate=discount_rate,
-        freq="D",
+        freq="M",  # T_months and recency_months are in months
     )
     return clv.clip(lower=0)
 
@@ -317,6 +317,7 @@ def run_clv_pipeline(
 
 
 def main() -> None:
+    """CLI 진입점 — 인자 파싱 후 run_clv_pipeline 실행."""
     parser = argparse.ArgumentParser(description="CLV 예측 (BG/NBD + Gamma-Gamma)")
     parser.add_argument("--data-dir",   default="data/raw", help="시뮬레이터 출력 디렉토리")
     parser.add_argument("--output-dir", default="results",  help="결과 저장 디렉토리")
