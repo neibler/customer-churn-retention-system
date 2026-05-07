@@ -220,7 +220,9 @@ class XLearner:
 
         # Weighted average
         cate = (1 - e) * tau1_score + e * tau0_score
-        return cate
+        # Fix: X-Learner CATE는 양수=처치가 이탈 증가 방향
+        # TLearner(양수=이탈 감소)와 부호 통일을 위해 negation
+        return -cate
 
     def predict_churn_control(self, X: pd.DataFrame) -> np.ndarray:
         """mu0 모델 기반 Control 그룹 이탈 확률 반환."""

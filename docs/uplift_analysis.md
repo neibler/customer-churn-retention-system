@@ -19,7 +19,7 @@
 **개념**  
 Treatment / Control 각각 별도 모델 학습 후 차이를 추정한다.
 
-```
+```text
 mu_1(x) = P(이탈 | X=x, T=1)   ← Treatment 모델
 mu_0(x) = P(이탈 | X=x, T=0)   ← Control 모델
 CATE(x) = mu_0(x) - mu_1(x)    ← 처치 효과 (양수 = 이탈 감소)
@@ -33,7 +33,7 @@ CATE(x) = mu_0(x) - mu_1(x)    ← 처치 효과 (양수 = 이탈 감소)
 **개념**  
 Künzel et al. (2019). Propensity Score 가중 평균으로 처치/대조군 불균형에 강건.
 
-```
+```text
 Stage 1: mu_0, mu_1 학습
 Stage 2: D_1 = Y_1 - mu_0(X_1), D_0 = mu_1(X_0) - Y_0 imputation
 Stage 3: CATE(x) = (1 - e(x)) * tau_1(x) + e(x) * tau_0(x)
@@ -91,7 +91,7 @@ Stage 3: CATE(x) = (1 - e(x)) * tau_1(x) + e(x) * tau_0(x)
 | Uplift Threshold | 0.02 | CATE 분포 평균 + 노이즈 여유 |
 | Churn Threshold | 0.35 | 이탈률 16.9% 대비 여유 포함 |
 
-```
+```text
 Persuadables  : CATE > 0.02  AND  P(이탈|Control) > 0.35
 Sure Things   : CATE ≤ 0.02  AND  P(이탈|Control) ≤ 0.35
 Lost Causes   : CATE ≤ 0.02  AND  P(이탈|Control) > 0.35

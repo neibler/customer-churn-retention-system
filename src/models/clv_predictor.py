@@ -164,8 +164,8 @@ def validate_clv(
     if train_ev.empty or val_ev.empty:
         return {"mae": float("nan"), "mape": float("nan")}
 
-    # Fix: 마지막 구매일 대신 production과 동일한 obs_end 사용
-    obs_end_train = obs_end
+    # T_cal은 calibration cutoff(mid_date)로 제한해야 함 — obs_end 사용 시 T가 과대계상됨
+    obs_end_train = mid_date
     try:
         train_summary = summary_data_from_transaction_data(
             train_ev,
