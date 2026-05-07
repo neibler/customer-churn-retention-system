@@ -145,7 +145,7 @@ def main() -> int:
     # ══════════════════════════════════════════════════════════════
     # 1. 데이터 로드 + 검증 + 분할
     # ══════════════════════════════════════════════════════════════
-    X, y, treatment, cid, feat_names = load_dataset(
+    X, y, treatment, cid, _ = load_dataset(
         features_path=cfg["paths"]["features"],
         customers_path=cfg["paths"]["customers"],
         id_col=cfg["data"]["id_col"],
