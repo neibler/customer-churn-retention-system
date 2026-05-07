@@ -26,6 +26,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from pandas.api.types import is_numeric_dtype
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier, RandomForestRegressor
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import LogisticRegression
@@ -377,7 +378,7 @@ def analyze_persuadables(
 
     numeric_cols = [
         c for c in feature_cols
-        if c not in ("is_treatment", "churned") and df[c].dtype in [float, int, np.float64, np.int64]
+        if c not in ("is_treatment", "churned") and is_numeric_dtype(df[c])  # Fix: int32/float32/nullable dtype 포함
     ]
     # persona 더미 제외
     numeric_cols = [c for c in numeric_cols if not c.startswith("persona_")]
