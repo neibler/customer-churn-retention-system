@@ -141,6 +141,7 @@ def predict_clv(
 
 def validate_clv(
     purchases: pd.DataFrame,
+    obs_end: pd.Timestamp,          # Fix: production과 동일한 관찰 기간 종료일 전달
     summary: pd.DataFrame,
     bgf: BetaGeoFitter,
     ggf: GammaGammaFitter | None,
@@ -148,6 +149,7 @@ def validate_clv(
     """Train-period CLV 예측 vs 실제 구매액 비교 (간이 검증).
 
     전체 관찰 기간의 절반을 학습, 나머지 절반을 검증으로 사용.
+    obs_end: production 파이프라인과 동일한 전체 이벤트 마지막 날짜.
     """
     if purchases.empty or len(purchases) < 50:
         return {"mae": float("nan"), "mape": float("nan")}
@@ -162,7 +164,8 @@ def validate_clv(
     if train_ev.empty or val_ev.empty:
         return {"mae": float("nan"), "mape": float("nan")}
 
-    obs_end_train = train_ev["event_date"].max()
+    # Fix: 마지막 구매일 대신 mid_date 기준으로 통일 (전체 obs_end 대비 절반 시점)
+    obs_end_train = mid_date
     try:
         train_summary = summary_data_from_transaction_data(
             train_ev,
@@ -177,13 +180,17 @@ def validate_clv(
     except Exception:
         return {"mae": float("nan"), "mape": float("nan")}
 
-    fit_df = train_summary[train_summary["frequency"] >= 1]
-    if len(fit_df) < 5:
+    # Fix: frequency==0 고객 제거하지 않고 전체 train_summary로 학습 (production과 동일)
+    if len(train_summary) < 5:
         return {"mae": float("nan"), "mape": float("nan")}
 
     val_bgf = BetaGeoFitter(penalizer_coef=0.01)
     try:
-        val_bgf.fit(fit_df["frequency"], fit_df["recency_months"], fit_df["T_months"])
+        val_bgf.fit(
+            train_summary["frequency"],
+            train_summary["recency_months"],
+            train_summary["T_months"],
+        )
     except Exception:
         return {"mae": float("nan"), "mape": float("nan")}
 
@@ -299,7 +306,7 @@ def run_clv_pipeline(
 
     # 7. 검증
     print("[CLV] 예측 정확도 검증...")
-    metrics = validate_clv(purchases, summary, bgf, ggf)
+    metrics = validate_clv(purchases, obs_end, summary, bgf, ggf)
     print(f"[CLV] MAE: {metrics['mae']:,}  MAPE: {metrics['mape']:.2%}" if not np.isnan(metrics['mae'])
           else "[CLV] 검증 데이터 부족")
 
