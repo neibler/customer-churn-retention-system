@@ -1,0 +1,106 @@
+# ════════════════════════════════════════════════════════════════
+# 클래스 불균형 처리: SMOTE 단일 방식
+# ════════════════════════════════════════════════════════════════
+smote:
+  k_neighbors: 5
+
+# ════════════════════════════════════════════════════════════════
+# CV 설정
+# random_state 는 data.random_state 를 공통 시드로 사용
+# ════════════════════════════════════════════════════════════════
+cv:
+  n_splits: 5
+  shuffle: true
+
+# ════════════════════════════════════════════════════════════════
+# 데이터 + 전역 시드
+# 이 random_state 가 split / KFold / SMOTE 에 공통 적용됨
+# (Optuna 는 후속 PR 에서 추가될 때 동일 시드 사용 예정)
+# ════════════════════════════════════════════════════════════════
+data:
+  id_col: customer_id
+  random_state: 42
+  stratify: true
+  target_col: churned
+  test_size: 0.2
+  treatment_col: is_treatment
+  val_size: 0.1
+
+# ════════════════════════════════════════════════════════════════
+# 모델 하이퍼파라미터 (default_params 고정 사용)
+# 후속 PR(2.12) 에서 Optuna 튜닝 결과로 덮어쓸 수 있도록 유지
+# ════════════════════════════════════════════════════════════════
+lightgbm:
+  default_params:
+    boosting_type: gbdt
+    colsample_bytree: 0.8
+    learning_rate: 0.05
+    max_depth: -1
+    metric: auc
+    min_child_samples: 20
+    n_estimators: 500
+    n_jobs: -1
+    num_leaves: 31
+    objective: binary
+    random_state: 42
+    reg_alpha: 0.0
+    reg_lambda: 1.0
+    subsample: 0.8
+    verbose: -1
+  early_stopping_rounds: 30
+
+xgboost:
+  default_params:
+    colsample_bytree: 0.8
+    eval_metric: auc
+    learning_rate: 0.05
+    max_depth: 6
+    min_child_weight: 1
+    n_estimators: 500
+    n_jobs: -1
+    objective: binary:logistic
+    random_state: 42
+    reg_alpha: 0.0
+    reg_lambda: 1.0
+    subsample: 0.8
+    tree_method: hist
+  early_stopping_rounds: 30
+
+# ════════════════════════════════════════════════════════════════
+# 로깅
+# ════════════════════════════════════════════════════════════════
+logging:
+  experiment_name: churn_prediction
+  level: INFO
+  log_file: logs/train.log
+  mlflow_tracking_uri: ''
+
+# ════════════════════════════════════════════════════════════════
+# 모델 파일명 (G5 버전 관리)
+# ════════════════════════════════════════════════════════════════
+model_filenames:
+  lightgbm: lightgbm_{version}.pkl
+  xgboost: xgboost_{version}.pkl
+model_version: v1
+
+# ════════════════════════════════════════════════════════════════
+# 경로
+# ════════════════════════════════════════════════════════════════
+paths:
+  customers: data/raw/customers.csv
+  events: data/raw/events.csv
+  features: data/processed/feature_store.parquet
+  model_report: docs/model_report.md
+  models_dir: models/
+  results_dir: results/
+  shap_dependence_dir: results/shap_dependence/
+  shap_summary: results/shap_summary.png
+
+# ════════════════════════════════════════════════════════════════
+# SHAP
+# ════════════════════════════════════════════════════════════════
+shap:
+  dependence_top_n: 5
+  generate_dependence_plots: true
+  sample_size: 2000
+  top_n_features: 10
