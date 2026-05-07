@@ -27,11 +27,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier, RandomForestRegressor
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_predict, StratifiedKFold, train_test_split
 from sklearn.preprocessing import StandardScaler
 
-warnings.filterwarnings("ignore")
+# Fix: 전역 억제 대신 모델 학습 관련 known warning만 억제
+warnings.filterwarnings("ignore", category=ConvergenceWarning)
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="sklearn")
 
 # ── 설정 ──────────────────────────────────────────────────────────────────────
 UPLIFT_THRESHOLD = 0.02   # Persuadables 판별 기준 (CATE > threshold)
@@ -428,11 +432,14 @@ def run_uplift_pipeline(
 
     # 3. Train / Validation 분리 (80:20) — Qini 모델 선택용
     print("[Uplift] Train/Validation 분리 (80:20)...")
+    # Fix: treatment만 stratify하면 arm 내 y가 단일 클래스가 될 수 있음
+    # treatment + outcome 조합 키로 joint 분포 유지
+    stratify_key = t.astype(str) + "_" + y.astype(str)
     X_tr, X_val, y_tr, y_val, t_tr, t_val = train_test_split(
         X, y, t,
         test_size=0.2,
         random_state=RANDOM_STATE,
-        stratify=t,   # treatment 비율 유지
+        stratify=stratify_key,   # treatment + outcome 분포 동시 유지
     )
 
     # 모델 선택용 학습 (train set)
