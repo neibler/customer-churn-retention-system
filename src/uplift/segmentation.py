@@ -54,11 +54,20 @@ SEGMENT_PRIORITY = {
 }
 
 
-def load_inputs(output_dir: Path, data_dir: Path) -> pd.DataFrame:
-    """uplift_segments.csv + clv_predictions.csv + customers.csv 병합."""
+def load_inputs(output_dir: Path, data_dir: Path) -> tuple[pd.DataFrame, pd.Timestamp]:
+    """uplift_segments.csv + clv_predictions.csv + customers.csv 병합.
+
+    Returns (df, obs_end)
+    obs_end: 전체 이벤트의 마지막 날짜 — 신규고객 기준 기준일로 사용
+    """
     uplift = pd.read_csv(output_dir / "uplift_segments.csv")
     clv    = pd.read_csv(output_dir / "clv_predictions.csv")
     customers = pd.read_csv(data_dir / "customers.csv")
+
+    # 전체 이벤트 마지막 날짜 → 신규고객 판별 기준일
+    events = pd.read_csv(data_dir / "events.csv")
+    events["event_date"] = pd.to_datetime(events["event_date"], errors="coerce")
+    obs_end = events["event_date"].max()
 
     df = uplift.merge(clv, on="customer_id", how="left")
     df = df.merge(
@@ -66,15 +75,15 @@ def load_inputs(output_dir: Path, data_dir: Path) -> pd.DataFrame:
         on="customer_id", how="left"
     )
     df["signup_date"] = pd.to_datetime(df["signup_date"], errors="coerce")
-    return df
+    return df, obs_end
 
 
-def classify_6segment(df: pd.DataFrame) -> pd.Series:
+def classify_6segment(df: pd.DataFrame, obs_end: pd.Timestamp | None = None) -> pd.Series:
     """이탈 확률 × Uplift × CLV 기반 6세그먼트 분류.
 
     분류 기준 (우선순위 순)
     ─────────────────────────────────────────────────────
-    1. 신규고객          : signup_date 기준 최근 30일
+    1. 신규고객          : obs_end 기준 최근 30일 내 가입
     2. 고가치-Persuadables: is_high_value=1 & 4분면=Persuadables (최우선 리텐션)
     3. 고가치-Sure Things : is_high_value=1 & 4분면=Sure Things  (유지 관리)
     4. 고가치-Lost Causes : is_high_value=1 & 4분면=Lost Causes  (심층 분석)
@@ -82,9 +91,10 @@ def classify_6segment(df: pd.DataFrame) -> pd.Series:
     6. 저가치-Lost Causes : 나머지 이탈 위험 고객
     ─────────────────────────────────────────────────────
     """
-    # signup_date 기준 최신 날짜 계산
-    ref_date = df["signup_date"].max()
-    is_new = (ref_date - df["signup_date"]).dt.days <= NEW_CUSTOMER_DAYS
+    # 관찰 기간 종료일 기준으로 신규고객 판별 (signup_date.max() 사용 시 편향 발생)
+    if obs_end is None:
+        obs_end = pd.Timestamp.now()
+    is_new = (obs_end - df["signup_date"]).dt.days <= NEW_CUSTOMER_DAYS
 
     is_high = df["is_high_value"] == 1
     is_persuadable = df["segment"] == "Persuadables"
@@ -213,12 +223,12 @@ def run_segmentation_pipeline(
 
     # 1. 입력 로드
     print("[Segment] 데이터 로딩...")
-    df = load_inputs(output_dir, data_dir)
+    df, obs_end = load_inputs(output_dir, data_dir)
     print(f"[Segment] 통합 데이터: {len(df):,}명")
 
     # 2. 6세그먼트 분류
     print("[Segment] 6세그먼트 분류...")
-    df["segment_6"] = classify_6segment(df)
+    df["segment_6"] = classify_6segment(df, obs_end=obs_end)
 
     # 3. Priority score
     df["priority_score"] = compute_priority_score(df)

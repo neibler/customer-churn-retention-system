@@ -35,28 +35,35 @@ HIGH_VALUE_PERCENTILE = 80   # 상위 20% = 고가치 고객
 MONTHLY_DISCOUNT_RATE = 0.01  # 월 할인율
 
 
-def load_transaction_data(data_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """events.csv에서 구매 트랜잭션 추출."""
+def load_transaction_data(data_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.Timestamp]:
+    """events.csv에서 구매 트랜잭션 추출.
+
+    Returns (customers, purchases, obs_end)
+    obs_end: 전체 이벤트(구매 외 포함)의 마지막 날짜 — 관찰 기간 종료일
+    """
     customers = pd.read_csv(data_dir / "customers.csv")
     events = pd.read_csv(data_dir / "events.csv")
     events["event_date"] = pd.to_datetime(events["event_date"], errors="coerce")
     events = events.dropna(subset=["event_date"])
 
+    obs_end = events["event_date"].max()
     purchases = events[events["event_type"] == "purchase"].copy()
-    return customers, purchases
+    return customers, purchases, obs_end
 
 
-def build_rfm_summary(purchases: pd.DataFrame) -> pd.DataFrame:
+def build_rfm_summary(purchases: pd.DataFrame, obs_end: pd.Timestamp | None = None) -> pd.DataFrame:
     """BG/NBD에 필요한 RFM 요약 테이블 생성.
 
     Lifetimes summary_data_from_transaction_data 활용.
-    observation_period_end = 전체 데이터의 마지막 날짜.
+    obs_end: 전체 이벤트(구매 포함)의 마지막 날짜 — 구매 마지막 날이 아닌
+             전체 관찰 기간 종료일을 사용해야 T가 정확하게 산출된다.
     """
     if purchases.empty:
         return pd.DataFrame(columns=["customer_id", "frequency", "recency",
                                      "T", "monetary_value"])
 
-    obs_end = purchases["event_date"].max()
+    if obs_end is None:
+        obs_end = purchases["event_date"].max()
 
     summary = summary_data_from_transaction_data(
         purchases,
@@ -74,14 +81,12 @@ def build_rfm_summary(purchases: pd.DataFrame) -> pd.DataFrame:
 
 
 def fit_bgnbd(summary: pd.DataFrame) -> BetaGeoFitter:
-    """BG/NBD 모델 학습 — 구매 빈도/타이밍 예측."""
+    """BG/NBD 모델 학습 — 전체 고객 대상 (frequency=0 포함)."""
     bgf = BetaGeoFitter(penalizer_coef=0.01)
-    # frequency >= 1인 반복 구매 고객만 학습
-    fit_df = summary[summary["frequency"] >= 1].copy()
     bgf.fit(
-        fit_df["frequency"],
-        fit_df["recency_months"],
-        fit_df["T_months"],
+        summary["frequency"],
+        summary["recency_months"],
+        summary["T_months"],
     )
     return bgf
 
@@ -255,12 +260,12 @@ def run_clv_pipeline(
 
     # 1. 데이터 로드
     print("[CLV] 데이터 로딩...")
-    customers, purchases = load_transaction_data(data_dir)
+    customers, purchases, obs_end = load_transaction_data(data_dir)
     print(f"[CLV] 구매 이벤트: {len(purchases):,}건  고유 고객: {purchases['customer_id'].nunique():,}명")
 
     # 2. RFM 요약
     print("[CLV] RFM 요약 테이블 생성...")
-    summary = build_rfm_summary(purchases)
+    summary = build_rfm_summary(purchases, obs_end=obs_end)
     print(f"[CLV] 요약 레코드: {len(summary):,}  반복 구매자: {(summary['frequency']>=1).sum():,}명")
 
     # 3. 모델 학습

@@ -278,14 +278,16 @@ def compute_qini_curve(
     t_count_safe = np.where(cum_treated_count == 0, 1, cum_treated_count)
     c_count_safe = np.where(cum_control_count == 0, 1, cum_control_count)
 
-    qini = cum_treated_churn / t_count_safe - cum_control_churn / c_count_safe
+    # y_true=1 이 이탈이므로 control - treated 방향으로 계산해야
+    # "좋은 타겟팅 = 높은 Qini" 가 성립한다.
+    qini = cum_control_churn / c_count_safe - cum_treated_churn / t_count_safe
     qini *= np.arange(1, n + 1) / n   # scale by fraction of population
 
     # Random baseline (diagonal)
     frac = np.arange(1, n + 1) / n
     baseline = frac * (
-        (y_true[treatment == 1].sum() / max(n_t, 1))
-        - (y_true[treatment == 0].sum() / max(n_c, 1))
+        (y_true[treatment == 0].sum() / max(n_c, 1))
+        - (y_true[treatment == 1].sum() / max(n_t, 1))
     )
 
     _trapz = getattr(np, "trapezoid", None) or getattr(np, "trapz")
