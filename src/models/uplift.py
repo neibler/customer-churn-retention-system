@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import cross_val_predict, StratifiedKFold
+from sklearn.model_selection import cross_val_predict, StratifiedKFold, train_test_split
 from sklearn.preprocessing import StandardScaler
 
 warnings.filterwarnings("ignore")
@@ -66,7 +66,7 @@ def build_features(customers: pd.DataFrame, events: pd.DataFrame) -> pd.DataFram
         n_add_to_cart=("event_type", lambda x: (x == "add_to_cart").sum()),
         n_coupon_use=("event_type", lambda x: (x == "coupon_use").sum()),
         total_order_value=("order_value", "sum"),
-        avg_order_value=("order_value", "mean"),
+        avg_order_value=("order_value", lambda x: x[x > 0].mean()),  # Fix: 구매 행만 평균
         first_event=("event_date", "min"),
         last_event=("event_date", "max"),
     ).reset_index()
@@ -85,6 +85,9 @@ def build_features(customers: pd.DataFrame, events: pd.DataFrame) -> pd.DataFram
     )
     # persona 인코딩
     df = pd.get_dummies(df, columns=["persona"], drop_first=False)
+
+    # avg_order_value: 구매 이력 없는 고객(NaN) → 0
+    agg["avg_order_value"] = agg["avg_order_value"].fillna(0)
 
     num_fill = {
         "n_events": 0, "n_purchase": 0, "n_page_view": 0, "n_search": 0,
@@ -423,31 +426,57 @@ def run_uplift_pipeline(
     print(f"[Uplift] 피처: {len(feature_cols)}개  |  "
           f"Treatment: {t.sum():,}  Control: {(1-t).sum():,}")
 
-    # 3. 모델 학습
-    print("[Uplift] T-Learner 학습...")
-    t_learner = TLearner(random_state=RANDOM_STATE)
-    t_learner.fit(X, y, t)
-    t_uplift        = t_learner.predict_cate(X)
-    t_churn_control = t_learner.predict_churn_control(X)
+    # 3. Train / Validation 분리 (80:20) — Qini 모델 선택용
+    print("[Uplift] Train/Validation 분리 (80:20)...")
+    X_tr, X_val, y_tr, y_val, t_tr, t_val = train_test_split(
+        X, y, t,
+        test_size=0.2,
+        random_state=RANDOM_STATE,
+        stratify=t,   # treatment 비율 유지
+    )
 
-    print("[Uplift] X-Learner 학습...")
-    x_learner = XLearner(random_state=RANDOM_STATE)
-    x_learner.fit(X, y, t)
-    x_uplift        = x_learner.predict_cate(X)
-    x_churn_control = x_learner.predict_churn_control(X)
+    # 모델 선택용 학습 (train set)
+    print("[Uplift] T-Learner 학습 (model selection)...")
+    t_learner_sel = TLearner(random_state=RANDOM_STATE)
+    t_learner_sel.fit(X_tr, y_tr, t_tr)
 
-    # 4. Qini Curve
-    print("[Uplift] Qini Curve 계산...")
-    t_frac, t_qini, t_qcoeff = compute_qini_curve(y.values, t.values, t_uplift)
-    x_frac, x_qini, x_qcoeff = compute_qini_curve(y.values, t.values, x_uplift)
+    print("[Uplift] X-Learner 학습 (model selection)...")
+    x_learner_sel = XLearner(random_state=RANDOM_STATE)
+    x_learner_sel.fit(X_tr, y_tr, t_tr)
 
-    print(f"[Uplift] Qini Coefficient — T-Learner: {t_qcoeff:.4f}  X-Learner: {x_qcoeff:.4f}")
+    # 4. Qini Curve — validation set으로 평가 (Fix: in-sample → out-of-sample)
+    print("[Uplift] Qini Curve 계산 (validation set)...")
+    t_val_uplift = t_learner_sel.predict_cate(X_val)
+    x_val_uplift = x_learner_sel.predict_cate(X_val)
 
-    # 5. 최고 모델 선택
-    best_name   = "T-Learner" if t_qcoeff >= x_qcoeff else "X-Learner"
-    best_uplift = t_uplift if best_name == "T-Learner" else x_uplift
-    best_churn  = t_churn_control if best_name == "T-Learner" else x_churn_control
-    print(f"[Uplift] 선택 모델: {best_name}")
+    t_frac, t_qini, t_qcoeff = compute_qini_curve(y_val.values, t_val.values, t_val_uplift)
+    x_frac, x_qini, x_qcoeff = compute_qini_curve(y_val.values, t_val.values, x_val_uplift)
+
+    print(f"[Uplift] Qini Coefficient (val) — T-Learner: {t_qcoeff:.4f}  X-Learner: {x_qcoeff:.4f}")
+
+    # 5. 최고 모델 선택 후 전체 데이터로 재학습 (Fix: 선택된 모델을 full data로 재학습)
+    best_name = "T-Learner" if t_qcoeff >= x_qcoeff else "X-Learner"
+    print(f"[Uplift] 선택 모델: {best_name} — 전체 데이터로 재학습...")
+
+    if best_name == "T-Learner":
+        best_learner = TLearner(random_state=RANDOM_STATE)
+    else:
+        best_learner = XLearner(random_state=RANDOM_STATE)
+    best_learner.fit(X, y, t)
+
+    best_uplift = best_learner.predict_cate(X)
+    best_churn  = best_learner.predict_churn_control(X)
+
+    # Qini 시각화용 전체 데이터 uplift (두 모델 모두 전체 데이터로 재학습)
+    t_learner_full = TLearner(random_state=RANDOM_STATE)
+    t_learner_full.fit(X, y, t)
+    t_uplift        = t_learner_full.predict_cate(X)
+    t_churn_control = t_learner_full.predict_churn_control(X)
+
+    x_learner_full = XLearner(random_state=RANDOM_STATE)
+    x_learner_full.fit(X, y, t)
+    x_uplift        = x_learner_full.predict_cate(X)
+    x_churn_control = x_learner_full.predict_churn_control(X)
 
     # 6. 4분면 세그먼트
     segments = classify_4quadrant(best_uplift, best_churn)
