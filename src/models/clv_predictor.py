@@ -164,8 +164,8 @@ def validate_clv(
     if train_ev.empty or val_ev.empty:
         return {"mae": float("nan"), "mape": float("nan")}
 
-    # Fix: 마지막 구매일 대신 mid_date 기준으로 통일 (전체 obs_end 대비 절반 시점)
-    obs_end_train = mid_date
+    # Fix: 마지막 구매일 대신 production과 동일한 obs_end 사용
+    obs_end_train = obs_end
     try:
         train_summary = summary_data_from_transaction_data(
             train_ev,
