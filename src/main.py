@@ -24,6 +24,20 @@ load_dotenv(PROJECT_ROOT / ".env")
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "simulator_config.yaml"
 
 
+def _get_budget_default() -> float | None:
+    """BUDGET 환경변수를 안전하게 float로 변환. 없거나 잘못된 값이면 None 반환.
+
+    argparse의 --budget이 type=float로 선언되어 있으므로 동일 타입을 유지한다.
+    """
+    val = os.getenv("BUDGET")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        return float(val)
+    except ValueError:
+        return None
+
+
 def run_simulate(sim_mode: str) -> None:
     """Run the data simulator and write raw CSVs to data/raw/."""
     from data.simulator import run_simulation
@@ -63,7 +77,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--budget",
         type=float,
-        default=int(os.environ["BUDGET"]) if os.getenv("BUDGET") else None,
+        default=_get_budget_default(),
         help="Marketing budget for optimization mode (env: BUDGET)",
     )
     return parser.parse_args()
