@@ -5,22 +5,22 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-blue.svg)](https://docs.docker.com/compose/)
-[![Status](https://img.shields.io/badge/Status-In%20Development-yellow.svg)]()
+![Status](https://img.shields.io/badge/Status-In%20Development-yellow.svg)
 
 ## 목차
 
-1. [프로젝트 소개](#-프로젝트-소개)
-2. [핵심 기능](#-핵심-기능)
-3. [시스템 아키텍처](#-시스템-아키텍처)
-4. [기술 스택](#-기술-스택)
-5. [프로젝트 구조](#-프로젝트-구조)
-6. [시작하기](#-시작하기)
-7. [실행 방법](#-실행-방법)
-8. [환경변수](#-환경변수)
-9. [데이터 흐름](#-데이터-흐름)
-10. [산출물 가이드](#-산출물-가이드)
-11. [팀 정보](#-팀-정보)
-12. [마일스톤](#-마일스톤)
+1. [프로젝트 소개](#프로젝트-소개)
+2. [핵심 기능](#핵심-기능)
+3. [시스템 아키텍처](#시스템-아키텍처)
+4. [기술 스택](#기술-스택)
+5. [프로젝트 구조](#프로젝트-구조)
+6. [시작하기](#시작하기)
+7. [실행 방법](#실행-방법)
+8. [환경변수](#환경변수)
+9. [데이터 흐름](#데이터-흐름)
+10. [산출물 가이드](#산출물-가이드)
+11. [팀 정보](#팀-정보)
+12. [마일스톤](#마일스톤)
 
 ---
 
@@ -154,7 +154,7 @@ flowchart TB
 
 ## 프로젝트 구조
 
-```
+```text
 customer-churn-retention-system/
 ├── config/
 │   ├── simulator_config.yaml      # 시뮬레이터 설정 (페르소나 / 마케팅 / 시즌)
@@ -282,13 +282,13 @@ python src/main.py --mode train
 
 **예정 산출물:** `models/lightgbm_v1.pkl`, `models/xgboost_v1.pkl`, `results/shap_summary.png`
 
-### 3) Uplift 세그먼테이션 (🚧 개발 중)
+### 3) Uplift 세그먼테이션 (✅ 완료)
 
 ```bash
 python src/main.py --mode uplift
 ```
 
-**예정 산출물:** `results/uplift_segments.csv`, `results/qini_curve.png`
+**산출물:** `results/uplift_segments.csv`, `results/qini_curve.png`
 
 ### 4) 예산 최적화 (🚧 개발 중)
 
@@ -337,7 +337,7 @@ python src/main.py --mode simulate --sim-mode full
 
 ## 데이터 흐름
 
-```
+```text
 [시뮬레이터]                              ← config/simulator_config.yaml
     |
     v  data/raw/{customers,events}.csv
