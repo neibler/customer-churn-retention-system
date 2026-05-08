@@ -13,10 +13,29 @@ Usage
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "simulator_config.yaml"
+
+
+def _get_budget_default() -> float | None:
+    """BUDGET 환경변수를 안전하게 float로 변환. 없거나 잘못된 값이면 None 반환.
+
+    argparse의 --budget이 type=float로 선언되어 있으므로 동일 타입을 유지한다.
+    """
+    val = os.getenv("BUDGET")
+    if val is None or val.strip() == "":
+        return None
+    try:
+        return float(val)
+    except ValueError:
+        return None
 
 
 def run_simulate(sim_mode: str) -> None:
@@ -46,20 +65,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         choices=["simulate", "train", "uplift", "optimize"],
-        default="simulate",
-        help="Execution mode (default: simulate)",
+        default=os.getenv("APP_MODE", "simulate"),
+        help="Execution mode (default: simulate, env: APP_MODE)",
     )
     parser.add_argument(
         "--sim-mode",
         choices=["full", "small"],
-        default="full",
-        help="Simulator scale: full=20,000 customers / small=5,000 customers (default: full)",
+        default=os.getenv("SIM_MODE", "full"),
+        help="Simulator scale: full=20,000 customers / small=5,000 customers (default: full, env: SIM_MODE)",
     )
     parser.add_argument(
         "--budget",
         type=float,
-        default=None,
-        help="Marketing budget for optimization mode",
+        default=_get_budget_default(),
+        help="Marketing budget for optimization mode (env: BUDGET)",
     )
     return parser.parse_args()
 
