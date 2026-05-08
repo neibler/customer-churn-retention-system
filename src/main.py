@@ -13,8 +13,13 @@ Usage
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "simulator_config.yaml"
 
@@ -46,20 +51,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         choices=["simulate", "train", "uplift", "optimize"],
-        default="simulate",
-        help="Execution mode (default: simulate)",
+        default=os.getenv("APP_MODE", "simulate"),
+        help="Execution mode (default: simulate, env: APP_MODE)",
     )
     parser.add_argument(
         "--sim-mode",
         choices=["full", "small"],
-        default="full",
-        help="Simulator scale: full=20,000 customers / small=5,000 customers (default: full)",
+        default=os.getenv("SIM_MODE", "full"),
+        help="Simulator scale: full=20,000 customers / small=5,000 customers (default: full, env: SIM_MODE)",
     )
     parser.add_argument(
         "--budget",
         type=float,
-        default=None,
-        help="Marketing budget for optimization mode",
+        default=int(os.environ["BUDGET"]) if os.getenv("BUDGET") else None,
+        help="Marketing budget for optimization mode (env: BUDGET)",
     )
     return parser.parse_args()
 
