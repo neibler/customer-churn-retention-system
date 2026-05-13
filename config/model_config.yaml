@@ -14,8 +14,7 @@ cv:
 
 # ════════════════════════════════════════════════════════════════
 # 데이터 + 전역 시드
-# 이 random_state 가 split / KFold / SMOTE 에 공통 적용됨
-# (Optuna 는 후속 PR 에서 추가될 때 동일 시드 사용 예정)
+# 이 random_state 가 split / KFold / SMOTE / Optuna TPE 공통 적용됨
 # ════════════════════════════════════════════════════════════════
 data:
   id_col: customer_id
@@ -27,8 +26,9 @@ data:
   val_size: 0.1
 
 # ════════════════════════════════════════════════════════════════
-# 모델 하이퍼파라미터 (default_params 고정 사용)
-# 후속 PR(2.12) 에서 Optuna 튜닝 결과로 덮어쓸 수 있도록 유지
+# 모델 하이퍼파라미터
+# default_params 는 Optuna 가 켜져 있으면 base 로만 쓰이고 search_space
+# 의 파라미터들은 각 trial 에서 덮어써짐.
 # ════════════════════════════════════════════════════════════════
 lightgbm:
   default_params:
@@ -67,6 +67,47 @@ xgboost:
   early_stopping_rounds: 30
 
 # ════════════════════════════════════════════════════════════════
+# Optuna 튜닝 (태스크 2.12)
+# ════════════════════════════════════════════════════════════════
+optuna:
+  enabled: true
+  n_trials: 50
+  timeout_seconds: 1800
+  search_space:
+    # 형식: param_name: [low, high, type]
+    # type ∈ {"int", "float", "log"}
+    xgboost:
+      colsample_bytree: [0.6, 1.0, float]
+      learning_rate: [0.01, 0.3, log]
+      max_depth: [3, 10, int]
+      min_child_weight: [1, 10, int]
+      reg_alpha: [0.0, 5.0, float]
+      reg_lambda: [0.5, 10.0, float]
+      subsample: [0.6, 1.0, float]
+    lightgbm:
+      colsample_bytree: [0.6, 1.0, float]
+      learning_rate: [0.01, 0.3, log]
+      min_child_samples: [5, 50, int]
+      num_leaves: [15, 127, int]
+      reg_alpha: [0.0, 5.0, float]
+      reg_lambda: [0.5, 10.0, float]
+      subsample: [0.6, 1.0, float]
+
+# ════════════════════════════════════════════════════════════════
+# Threshold 분석 (태스크 2.13)
+# method 선택지:
+#   max_f1       : precision-recall 균형 (default)
+#   max_youden   : TPR - FPR 최대 (진단 의학 표준)
+#   precision_at : precision >= target 만족 + recall 최대 (FP 비용 ↑)
+#   recall_at    : recall >= target 만족 + precision 최대 (FN 비용 ↑)
+# ════════════════════════════════════════════════════════════════
+threshold:
+  method: max_f1
+  # precision_at / recall_at 방식 사용 시에만 의미 있음
+  precision_target: 0.70
+  recall_target: 0.70
+
+# ════════════════════════════════════════════════════════════════
 # 로깅
 # ════════════════════════════════════════════════════════════════
 logging:
@@ -79,12 +120,13 @@ logging:
 # 모델 파일명 (G5 버전 관리)
 # ════════════════════════════════════════════════════════════════
 model_filenames:
-  lightgbm: lightgbm_{version}.pkl
-  xgboost: xgboost_{version}.pkl
+  lightgbm: lightgbm_{version}.joblib
+  xgboost: xgboost_{version}.joblib
 model_version: v1
 
 # ════════════════════════════════════════════════════════════════
 # 경로
+# threshold_curve 추가
 # ════════════════════════════════════════════════════════════════
 paths:
   customers: data/raw/customers.csv
@@ -95,6 +137,7 @@ paths:
   results_dir: results/
   shap_dependence_dir: results/shap_dependence/
   shap_summary: results/shap_summary.png
+  threshold_curve: results/threshold_pr_curve.png
 
 # ════════════════════════════════════════════════════════════════
 # SHAP
