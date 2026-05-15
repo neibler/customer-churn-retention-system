@@ -230,8 +230,8 @@ def validate(
         issues.extend(check_survivorship_bias(fs, customers_raw))
 
     summary = {
-        "n_customers": int(len(fs)),
-        "n_features": int(fs.shape[1] - len(MASTER_COLS)),
+        "n_customers": len(fs),
+        "n_features": fs.shape[1] - len(MASTER_COLS),
         "n_fail": sum(1 for i in issues if i["severity"] == "fail"),
         "n_warn": sum(1 for i in issues if i["severity"] == "warn"),
     }
