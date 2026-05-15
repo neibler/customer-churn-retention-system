@@ -259,7 +259,7 @@ def plot_retention_curve(
     for m in milestones:
         ax.axvline(m, ls="--", lw=0.8, color="gray", alpha=0.5)
 
-    ax.set_title("Cohort Retention Curve (M1 / M3 / M6)")
+    ax.set_title("Cohort Retention Curve (M1 / M3 / M6 / M12)")
     ax.set_xlabel("Months since acquisition")
     ax.set_ylabel("Retention rate")
     ax.set_xticks(range(0, MAX_PERIODS))
@@ -286,7 +286,7 @@ def plot_churn_heatmap(
     masked = np.ma.masked_invalid(matrix)
 
     im = ax.imshow(masked, aspect="auto", cmap="YlOrRd")
-    ax.set_title("Cohort Churn-Rate Heatmap (M1 / M3 / M6)")
+    ax.set_title("Cohort Churn-Rate Heatmap (M1 / M3 / M6 / M12)")
     ax.set_xlabel("Milestone month")
     ax.set_ylabel("Acquisition cohort")
     ax.set_xticks(range(len(pivot.columns)),
@@ -497,8 +497,13 @@ def run_cohort_analysis(
     # 1. Load
     customers, events = load_data(data_dir)
     print(f"[Cohort] Loaded {len(customers):,} customers, {len(events):,} events")
-    print(f"[Cohort] Event period: {events['event_date'].min().date()} ~ "
-          f"{events['event_date'].max().date()}")
+
+    valid_dates = events["event_date"].dropna()
+    if valid_dates.empty:
+        print("[Cohort] Event period: N/A (no valid event_date)")
+    else:
+        print(f"[Cohort] Event period: {valid_dates.min().date()} ~ "
+              f"{valid_dates.max().date()}")
 
     # 2. Build cohort table
     cohort_df = build_cohort_retention(
