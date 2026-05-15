@@ -100,19 +100,19 @@ def resolve_anchors(
 
     if "scheduled_churn_day" in customers.columns:
         sim_anchor = customers[["customer_id", "scheduled_churn_day"]].copy()
-        # scheduled_churn_day may be a day offset OR an absolute date string.
-        # Try date parse first; if that fails, treat as offset from signup_date.
+        # scheduled_churn_day may be a day offset OR an absolute date string,
+        # possibly mixed per row. Parse both interpretations row-wise and
+        # combine: prefer parsed date, else signup + offset days.
         parsed = pd.to_datetime(sim_anchor["scheduled_churn_day"], errors="coerce")
-        if parsed.notna().any():
-            sim_anchor["sim_anchor_date"] = parsed
-        elif "signup_date" in customers.columns:
-            offsets = pd.to_numeric(
-                sim_anchor["scheduled_churn_day"], errors="coerce"
-            )
+        offsets = pd.to_numeric(sim_anchor["scheduled_churn_day"], errors="coerce")
+
+        if "signup_date" in customers.columns:
             signup = pd.to_datetime(customers["signup_date"], errors="coerce")
-            sim_anchor["sim_anchor_date"] = signup + pd.to_timedelta(offsets, unit="D")
+            offset_dates = signup + pd.to_timedelta(offsets, unit="D")
         else:
-            sim_anchor["sim_anchor_date"] = pd.NaT
+            offset_dates = pd.Series(pd.NaT, index=sim_anchor.index)
+
+        sim_anchor["sim_anchor_date"] = parsed.where(parsed.notna(), offset_dates)
 
         base = base.merge(
             sim_anchor[["customer_id", "sim_anchor_date"]],
@@ -426,9 +426,9 @@ def run_churn_pattern_analysis(
     paths: dict[str, Path] = {}
     paths["window_features"] = output_dir / "churn_pattern_window_features.csv"
     paths["pattern_summary"] = output_dir / "churn_pattern_summary.csv"
-    paths["top_patterns"] = output_dir / "churn_pattern_top5.csv"
-    paths["transitions"] = output_dir / "churn_pattern_transitions_top5.csv"
-    paths["top_patterns_plot"] = output_dir / "churn_pattern_top5.png"
+    paths["top_patterns"] = output_dir / f"churn_pattern_top{top_n}.csv"
+    paths["transitions"] = output_dir / f"churn_pattern_transitions_top{top_n}.csv"
+    paths["top_patterns_plot"] = output_dir / f"churn_pattern_top{top_n}.png"
 
     features.to_csv(paths["window_features"], index=False)
     pattern_summary.to_csv(paths["pattern_summary"], index=False)
@@ -457,6 +457,19 @@ def run_churn_pattern_analysis(
     return paths
 
 
+def _positive_int(value: str) -> int:
+    """argparse type: parse as int and require > 0."""
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError(f"expected int, got {value!r}")
+    if n <= 0:
+        raise argparse.ArgumentTypeError(
+            f"must be a positive integer, got {n}"
+        )
+    return n
+
+
 def main() -> None:
     """CLI entry: run pre-churn 30-day pattern extraction pipeline."""
     parser = argparse.ArgumentParser(
@@ -464,8 +477,8 @@ def main() -> None:
     )
     parser.add_argument("--data-dir", default="data/raw")
     parser.add_argument("--output-dir", default="results")
-    parser.add_argument("--window-days", type=int, default=WINDOW_DAYS)
-    parser.add_argument("--top-n", type=int, default=TOP_N)
+    parser.add_argument("--window-days", type=_positive_int, default=WINDOW_DAYS)
+    parser.add_argument("--top-n", type=_positive_int, default=TOP_N)
     args = parser.parse_args()
 
     run_churn_pattern_analysis(
