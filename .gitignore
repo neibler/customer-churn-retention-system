@@ -213,3 +213,6 @@ data/processed/
 *.pt
 __pycache__/
 .env
+
+# WBS 3.7 intermediate (large per-customer file)
+results/churn_pattern_window_features.csv
