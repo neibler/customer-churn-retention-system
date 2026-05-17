@@ -7,13 +7,23 @@
 
 ## 산출 모듈 개요
 
+### 피처 엔지니어링 (`src/features/`)
+
 | 모듈 | 책임 | 산출 컬럼 수 |
 |---|---|---|
 | `src/features/rfm.py` | RFM + 행동 변화율 | 18 |
 | `src/features/session.py` | 세션 품질 + 시간대별 행동 | 13 |
 | `src/features/sequence.py` | 시퀀스 + 고객 여정 단계 | 13 |
 | `src/features/store.py` | 결측/이상치 처리 + 통합 저장 | (스토어) |
+| `src/features/validate_pipeline.py` | 파이프라인 검증 + 리포트 (WBS 3.8) | (검증) |
 | **합계 (식별/타깃 제외)** | | **44** |
+
+### 분석 산출물 (`src/analysis/`)
+
+| 모듈 | 책임 | 산출물 |
+|---|---|---|
+| `src/analysis/cohort.py` | 코호트 리텐션(M1/M3/M6/**M12**) + **여정 퍼널** (WBS 3.6) | `cohort_retention*.csv`, `journey_funnel*.csv`, `*.png` |
+| `src/analysis/churn_pattern.py` | 이탈 직전 30일 패턴 추출 상위 5개 (WBS 3.7) | `churn_pattern_top5.csv`, `churn_pattern_transitions_top5.csv` |
 
 식별/타깃 컬럼 (피처가 아닌 메타데이터): `customer_id`, `persona`, `is_treatment`, `churned`.
 
@@ -223,3 +233,61 @@ python src/features/store.py
 | 8 | 결측치/이상치 처리 | ✅ | §7 + `store.py` |
 | 9 | 피처 스토어 저장 (Redis 또는 파일) | ✅ | §8 (parquet + csv 파일 기반) |
 | 10 | feature_dictionary.md 30개 이상 | ✅ | 본 문서 44개 |
+
+---
+
+## 10. 분석 산출물 (WBS 3.6 / 3.7 / 3.8)
+
+피처 외 분석 산출물은 `src/analysis/` 모듈이 생성하며, `results/` 에 저장된다.
+
+### 10.1 코호트 리텐션 + 여정 퍼널 (WBS 3.6) — `cohort.py`
+
+| 산출물 | 설명 |
+|---|---|
+| `cohort_retention.csv` | 코호트 × 기간 리텐션 테이블 (M0 ~ M12, observed 플래그 포함) |
+| `cohort_retention_milestones.csv` | M1/M3/M6/**M12** 마일스톤 행만 추출 + `churn_rate` 컬럼 |
+| `cohort_retention_curve.png` | 코호트별 리텐션 곡선 + 평균선 |
+| `cohort_retention_heatmap.png` | 전체 기간 리텐션율 히트맵 |
+| `cohort_churn_rate_heatmap.png` | 마일스톤 이탈율 히트맵 |
+| `journey_funnel_overall.csv` | 전체 퍼널 단계별 도달 인원·도달률·단계 전환율 |
+| `journey_funnel_by_cohort.csv` | 코호트별 퍼널 (long format) |
+| `journey_funnel.png` | 전체 퍼널 막대그래프 (단계별 전환율 라벨) |
+| `journey_funnel_by_cohort.png` | 코호트 × 단계 전환율 히트맵 |
+
+퍼널 단계는 `page_view → search → add_to_cart → purchase` 순서이며, 단계 전환율은 "직전 단계 도달자 중 다음 단계 도달자 비율"로 정의한다.
+
+### 10.2 이탈 직전 30일 패턴 (WBS 3.7) — `churn_pattern.py`
+
+이탈 고객의 마지막 활동일(또는 시뮬레이터 `scheduled_churn_day`)을 anchor로 하여 [anchor−30d, anchor] 윈도우를 추출하고, 비이탈 고객의 동일 길이 윈도우(관측 종료일 기준)와 비교한다.
+
+| 산출물 | 설명 |
+|---|---|
+| `churn_pattern_window_features.csv` | 고객별 30일 윈도우 행동 피처 (이벤트별 카운트, 비율, 마지막 활동까지 간격 등) |
+| `churn_pattern_summary.csv` | 피처별 churn 평균 vs non-churn 평균 + lift |
+| `churn_pattern_top5.csv` | \|lift\| 기준 상위 5개 행동 패턴 |
+| `churn_pattern_transitions_top5.csv` | 인접 이벤트 전이(event_{t-1} → event_t) 중 상위 5개 |
+| `churn_pattern_top5.png` | 상위 5개 패턴 churn vs non-churn 비교 |
+
+핵심 정의:
+- **anchor_date**: 이탈 고객은 `scheduled_churn_day`(있으면) 또는 마지막 활동일. 비이탈 고객은 관측 종료일.
+- **lift_vs_nonchurn**: `(churn_mean − nonchurn_mean) / nonchurn_mean`. 양수면 이탈자 쪽에서 더 강한 신호.
+
+### 10.3 파이프라인 검증 (WBS 3.8) — `validate_pipeline.py`
+
+`build_feature_store()` 산출물을 자동 점검한다. 실패 1건 이상이면 종료 코드 2 로 빠진다.
+
+| 체크 | 심각도 | 검증 내용 |
+|---|---|---|
+| `shape.nonempty` | fail | 피처 스토어 비어 있지 않음 |
+| `shape.feature_count` | warn | 피처 ≥ 40개 (사전 기준 44) |
+| `shape.customer_id_unique` | fail | `customer_id` 유일성 |
+| `coverage.master_columns` | fail | `customer_id/persona/is_treatment/churned` 존재 |
+| `coverage.full_nan_columns` | fail | 100% NaN 컬럼 없음 |
+| `numeric.no_inf` | fail | 이상치 처리 후 ±inf 잔존 없음 (재발 방지) |
+| `numeric.nan_rate` | warn | 컬럼별 NaN 비율 < 1% (기본값) |
+| `numeric.rate_bounds` | warn | `_rate`/`_ratio` 류 피처 ∈ [0,1] (change-rate 제외) |
+| `bias.survivorship` | fail | 피처 스토어 인원 = `customers.csv` 인원 (left-merge 검증) |
+| `leakage.schema` | fail | 피처명에 `churned` 누출 없음 |
+
+검증 리포트: `results/feature_validation_report.json` (summary + issue list).
+

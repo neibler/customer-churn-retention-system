@@ -1,0 +1,5 @@
+stage,customers,reach_rate,step_conv_rate
+page_view,4692,0.9384,
+search,4660,0.932,0.9846547314578005
+add_to_cart,4578,0.9156,0.9746781115879828
+purchase,4382,0.8764,0.9456094364351245

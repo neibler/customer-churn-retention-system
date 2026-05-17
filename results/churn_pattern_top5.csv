@@ -1,0 +1,6 @@
+rank,feature,direction,churn_mean,nonchurn_mean,lift_vs_nonchurn
+1,days_since_last_event_before_anchor,↑ in churners,19.725,5.449313749097039,2.619721841721532
+2,purchase_amount_sum,↓ in churners,10096.25875,74714.64652058753,-0.8648690822994393
+3,search_to_purchase_rate,↓ in churners,0.05574932172982676,0.24819463206339504,-0.7753806306512422
+4,purchase_count,↓ in churners,0.2125,0.9215025282928004,-0.7693983538019337
+5,review_count,↓ in churners,0.23125,0.9971105225138455,-0.7680798720115914

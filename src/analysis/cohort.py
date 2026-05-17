@@ -1,7 +1,8 @@
-"""Cohort retention analysis — Task 1.4.
+"""Cohort retention analysis — Task 1.4 + WBS 3.6 (M12 / journey funnel).
 
 시뮬레이터가 생성한 data/raw/customers.csv · events.csv 를 직접 읽어
-코호트별 M1, M3, M6 리텐션 곡선을 산출하고 시각화한다.
+코호트별 M1, M3, M6, M12 리텐션 곡선과 고객 여정 퍼널(page_view →
+search → add_to_cart → purchase) 전환율을 산출하고 시각화한다.
 
 Simulator output schema
 -----------------------
@@ -29,8 +30,8 @@ import pandas as pd
 import seaborn as sns
 
 
-RETENTION_MILESTONES: tuple[int, ...] = (1, 3, 6)
-MAX_PERIODS: int = 13  # period 0 ~ 12
+RETENTION_MILESTONES: tuple[int, ...] = (1, 3, 6, 12)
+MAX_PERIODS: int = 13  # period 0 ~ 12 (covers M12)
 
 # Purchase/exploration events only; excludes noise like cs_contact
 CORE_EVENT_TYPES: set[str] = {
@@ -39,6 +40,14 @@ CORE_EVENT_TYPES: set[str] = {
     "add_to_cart",
     "purchase",
 }
+
+# Customer journey funnel stages (ordered)
+FUNNEL_STAGES: tuple[str, ...] = (
+    "page_view",
+    "search",
+    "add_to_cart",
+    "purchase",
+)
 
 
 def load_data(data_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -54,12 +63,20 @@ def load_data(data_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     events = pd.read_csv(data_dir / "events.csv")
     events["event_date"] = pd.to_datetime(events["event_date"], errors="coerce")
 
-    first_event = (
-        events.groupby("customer_id")["event_date"]
-        .min()
-        .rename("signup_date")
-    )
-    customers = customers.merge(first_event, on="customer_id", how="left")
+    # Prefer simulator-provided signup_date if present; otherwise derive
+    # from first event.
+    if "signup_date" in customers.columns:
+        customers["signup_date"] = pd.to_datetime(
+            customers["signup_date"], errors="coerce"
+        )
+    else:
+        first_event = (
+            events.groupby("customer_id")["event_date"]
+            .min()
+            .rename("signup_date")
+        )
+        customers = customers.merge(first_event, on="customer_id", how="left")
+
     customers = customers.dropna(subset=["signup_date"]).copy()
     customers["acquisition_month"] = (
         customers["signup_date"].dt.to_period("M").astype(str)
@@ -75,6 +92,7 @@ def _month_num(period_str: str) -> int:
 
 
 def _month_num_series(s: pd.Series) -> pd.Series:
+    """Vectorized 'YYYY-MM' → year*12 + month."""
     text = s.astype(str)
     year = text.str[:4].astype(int)
     month = text.str[5:7].astype(int)
@@ -133,6 +151,7 @@ def build_cohort_retention(
     if activity.empty:
         monthly = pd.DataFrame(columns=["customer_id", "event_month_num", "cnt"])
     else:
+        activity = activity.copy()
         activity["event_month_num"] = (
             activity["event_date"].dt.year * 12 + activity["event_date"].dt.month
         )
@@ -240,7 +259,7 @@ def plot_retention_curve(
     for m in milestones:
         ax.axvline(m, ls="--", lw=0.8, color="gray", alpha=0.5)
 
-    ax.set_title("Cohort Retention Curve (M1 / M3 / M6)")
+    ax.set_title("Cohort Retention Curve (M1 / M3 / M6 / M12)")
     ax.set_xlabel("Months since acquisition")
     ax.set_ylabel("Retention rate")
     ax.set_xticks(range(0, MAX_PERIODS))
@@ -267,7 +286,7 @@ def plot_churn_heatmap(
     masked = np.ma.masked_invalid(matrix)
 
     im = ax.imshow(masked, aspect="auto", cmap="YlOrRd")
-    ax.set_title("Cohort Churn-Rate Heatmap (M1 / M3 / M6)")
+    ax.set_title("Cohort Churn-Rate Heatmap (M1 / M3 / M6 / M12)")
     ax.set_xlabel("Milestone month")
     ax.set_ylabel("Acquisition cohort")
     ax.set_xticks(range(len(pivot.columns)),
@@ -308,6 +327,164 @@ def plot_retention_heatmap(
     plt.close(fig)
 
 
+# ---------------------------------------------------------------------------
+# WBS 3.6 — Customer journey funnel
+# ---------------------------------------------------------------------------
+
+def build_journey_funnel(
+    customers: pd.DataFrame,
+    events: pd.DataFrame,
+    stages: Sequence[str] = FUNNEL_STAGES,
+) -> pd.DataFrame:
+    """Aggregate funnel stage reach + step-wise conversion rates.
+
+    A customer "reaches" a stage if they have ≥1 event of that type at any
+    point in their lifetime. Step conversion = customers reaching stage N
+    among those who reached stage N-1.
+
+    Returns
+    -------
+    DataFrame with columns:
+        stage, customers, reach_rate, step_conv_rate
+        (step_conv_rate is NaN for the first stage)
+    """
+    if customers.empty or events.empty:
+        return pd.DataFrame(
+            columns=["stage", "customers", "reach_rate", "step_conv_rate"]
+        )
+
+    base_ids = customers["customer_id"].drop_duplicates()
+    total = int(base_ids.nunique())
+
+    # Customers reaching each stage
+    rows: list[dict] = []
+    prev_reached: set[str] | None = None
+
+    for stage in stages:
+        stage_events = events[events["event_type"] == stage]
+        reached = set(stage_events["customer_id"].unique()) & set(base_ids)
+        n = len(reached)
+
+        if prev_reached is None:
+            step_conv = np.nan
+        else:
+            # Of customers who reached previous stage, how many reach this?
+            both = reached & prev_reached
+            step_conv = len(both) / max(len(prev_reached), 1)
+
+        rows.append(
+            {
+                "stage": stage,
+                "customers": n,
+                "reach_rate": n / max(total, 1),
+                "step_conv_rate": step_conv,
+            }
+        )
+        prev_reached = reached
+
+    return pd.DataFrame(rows)
+
+
+def build_cohort_journey_funnel(
+    customers: pd.DataFrame,
+    events: pd.DataFrame,
+    stages: Sequence[str] = FUNNEL_STAGES,
+) -> pd.DataFrame:
+    """Build funnel per acquisition cohort (long format)."""
+    if customers.empty or events.empty:
+        return pd.DataFrame(
+            columns=[
+                "cohort_month", "stage", "customers",
+                "reach_rate", "step_conv_rate",
+            ]
+        )
+
+    out_rows: list[pd.DataFrame] = []
+    cohort_map = customers[["customer_id", "acquisition_month"]].drop_duplicates(
+        subset=["customer_id"]
+    )
+
+    for cohort_month, grp in cohort_map.groupby("acquisition_month"):
+        cohort_customers = customers[customers["customer_id"].isin(grp["customer_id"])]
+        cohort_events = events[events["customer_id"].isin(grp["customer_id"])]
+        funnel = build_journey_funnel(cohort_customers, cohort_events, stages)
+        funnel.insert(0, "cohort_month", str(cohort_month))
+        out_rows.append(funnel)
+
+    if not out_rows:
+        return pd.DataFrame(
+            columns=[
+                "cohort_month", "stage", "customers",
+                "reach_rate", "step_conv_rate",
+            ]
+        )
+    return pd.concat(out_rows, ignore_index=True)
+
+
+def plot_journey_funnel(
+    funnel_df: pd.DataFrame,
+    output_path: Path,
+) -> None:
+    """Save overall journey funnel as a horizontal bar chart with rates."""
+    if funnel_df.empty:
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    stages = funnel_df["stage"].tolist()
+    counts = funnel_df["customers"].tolist()
+    reach = funnel_df["reach_rate"].tolist()
+    step = funnel_df["step_conv_rate"].tolist()
+
+    y_pos = np.arange(len(stages))[::-1]  # top stage at top
+    ax.barh(y_pos, counts, color="#4C72B0", alpha=0.85)
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(stages)
+    ax.set_xlabel("Customers reaching stage")
+    ax.set_title("Customer Journey Funnel (page_view → search → add_to_cart → purchase)")
+
+    for i, (cnt, r, s) in enumerate(zip(counts, reach, step)):
+        label = f"{cnt:,} ({r:.1%})"
+        if not pd.isna(s):
+            label += f" — step conv {s:.1%}"
+        ax.text(cnt, y_pos[i], "  " + label, va="center", fontsize=9)
+
+    ax.set_xlim(0, max(counts) * 1.35 if counts else 1)
+    ax.grid(axis="x", alpha=0.25)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_cohort_journey_funnel(
+    cohort_funnel_df: pd.DataFrame,
+    output_path: Path,
+) -> None:
+    """Save cohort × stage step-conversion heatmap."""
+    if cohort_funnel_df.empty:
+        return
+
+    pivot = cohort_funnel_df.pivot(
+        index="cohort_month", columns="stage", values="step_conv_rate"
+    )
+    # Reorder columns to canonical funnel order, drop first stage (NaN-only)
+    ordered = [s for s in FUNNEL_STAGES if s in pivot.columns]
+    pivot = pivot.reindex(columns=ordered)
+    if pivot.shape[1] > 1:
+        pivot = pivot.iloc[:, 1:]  # drop first stage (no step conv)
+
+    fig, ax = plt.subplots(figsize=(9, 5.5))
+    sns.heatmap(
+        pivot, annot=True, fmt=".1%", cmap="YlGnBu",
+        ax=ax, vmin=0, vmax=1, linewidths=0.5,
+    )
+    ax.set_title("Cohort × Funnel Step Conversion Rate")
+    ax.set_xlabel("Funnel step (conversion from previous stage)")
+    ax.set_ylabel("Acquisition cohort")
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
 def run_cohort_analysis(
     data_dir: str | Path = "data/raw",
     output_dir: str | Path = "results",
@@ -320,8 +497,13 @@ def run_cohort_analysis(
     # 1. Load
     customers, events = load_data(data_dir)
     print(f"[Cohort] Loaded {len(customers):,} customers, {len(events):,} events")
-    print(f"[Cohort] Event period: {events['event_date'].min().date()} ~ "
-          f"{events['event_date'].max().date()}")
+
+    valid_dates = events["event_date"].dropna()
+    if valid_dates.empty:
+        print("[Cohort] Event period: N/A (no valid event_date)")
+    else:
+        print(f"[Cohort] Event period: {valid_dates.min().date()} ~ "
+              f"{valid_dates.max().date()}")
 
     # 2. Build cohort table
     cohort_df = build_cohort_retention(
@@ -407,6 +589,26 @@ def run_cohort_analysis(
     plot_churn_heatmap(milestone_df, RETENTION_MILESTONES, paths["churn_heatmap"])
     plot_retention_heatmap(cohort_df, paths["retention_heatmap"])
 
+    # 6. WBS 3.6 — Journey funnel
+    funnel_df = build_journey_funnel(customers, events)
+    cohort_funnel_df = build_cohort_journey_funnel(customers, events)
+
+    paths["funnel_csv"] = output_dir / "journey_funnel_overall.csv"
+    paths["cohort_funnel_csv"] = output_dir / "journey_funnel_by_cohort.csv"
+    paths["funnel_plot"] = output_dir / "journey_funnel.png"
+    paths["cohort_funnel_plot"] = output_dir / "journey_funnel_by_cohort.png"
+
+    funnel_df.to_csv(paths["funnel_csv"], index=False)
+    cohort_funnel_df.to_csv(paths["cohort_funnel_csv"], index=False)
+    plot_journey_funnel(funnel_df, paths["funnel_plot"])
+    plot_cohort_journey_funnel(cohort_funnel_df, paths["cohort_funnel_plot"])
+
+    print("\n[Cohort] Journey funnel (overall):")
+    for _, row in funnel_df.iterrows():
+        step = f" (step conv {row['step_conv_rate']:.1%})" if pd.notna(row["step_conv_rate"]) else ""
+        print(f"  {row['stage']:>13s}: {int(row['customers']):>5,} customers"
+              f" — reach {row['reach_rate']:.1%}{step}")
+
     print(f"\n[Cohort] Saved to {output_dir}/")
     for name, p in paths.items():
         print(f"  {name}: {p.name}")
@@ -415,7 +617,10 @@ def run_cohort_analysis(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Cohort retention analysis (M1/M3/M6)")
+    """CLI entry: run full cohort + journey funnel analysis."""
+    parser = argparse.ArgumentParser(
+        description="Cohort retention analysis (M1/M3/M6/M12) + journey funnel"
+    )
     parser.add_argument("--data-dir", default="data/raw",
                         help="Path to simulator output directory")
     parser.add_argument("--output-dir", default="results",
