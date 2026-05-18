@@ -46,14 +46,17 @@ def run_simulate(sim_mode: str) -> None:
 
 
 def run_train() -> None:
-    print("[Train] Training pipeline not yet implemented.")
+    from main_train import main as _main_train
+    _main_train()
 
 
 def run_uplift() -> None:
-    print("[Uplift] Uplift modeling not yet implemented.")
+    from models.uplift import main as _main_uplift
+    _main_uplift()
 
 
 def run_optimize(budget: float | None) -> None:
+    # TODO: src/optimization/budget.py 구현 후 연결
     budget_str = f"{budget:,.0f}" if budget is not None else "unlimited"
     print(f"[Optimize] Optimization not yet implemented. Budget: {budget_str}")
 
