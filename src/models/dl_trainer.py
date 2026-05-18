@@ -2,11 +2,11 @@
 DL 트레이너 — LSTM 시퀀스 모델 (배한솔, 태스크 2.14)
 
 명세서 §5.5 요구사항 충족:
-- ✅ 고객 행동 시퀀스 입력 LSTM
-- ✅ 시퀀스 데이터 전처리 (패딩, 임베딩)  ← sequence_loader.py 가 담당
-- ✅ Early Stopping
-- ✅ ML 모델과 동일 테스트셋에서 비교 가능 (test_metrics 동일 포맷)
-- ✅ DL 모델 파일/학습 로그/비교 리포트 저장 (joblib 대신 torch.save 사용)
+- 고객 행동 시퀀스 입력 LSTM
+- 시퀀스 데이터 전처리 (패딩, 임베딩)  ← sequence_loader.py 가 담당
+- Early Stopping
+- ML 모델과 동일 테스트셋에서 비교 가능 (test_metrics 동일 포맷)
+- DL 모델 파일/학습 로그/비교 리포트 저장 (joblib 대신 torch.save 사용)
 
 설계 결정:
 - Embedding → LSTM(2-layer, hidden=64) → Dropout → FC → Sigmoid
@@ -55,6 +55,46 @@ except ImportError as e:
 from src.models.sequence_loader import PAD_IDX, VOCAB_SIZE
 
 logger = logging.getLogger(__name__)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 안전 평가 헬퍼 — 단일 클래스 split 가드 (CodeRabbit Major 반영)
+# ══════════════════════════════════════════════════════════════════════
+
+
+def _safe_roc_auc(y_true: np.ndarray, y_score: np.ndarray, split_name: str) -> float:
+    """단일 클래스 split 에서도 안전한 ROC AUC 계산.
+
+    sklearn 의 roc_auc_score 는 y_true 에 한 종류 라벨만 있으면
+    'ValueError: Only one class present in y_true' 를 던진다.
+
+    시나리오:
+    - 작은 val split 에 우연히 양성 0건 (이탈률 20% × 50명 = 평균 10건이지만 분산 큼)
+    - test_size 너무 작게 설정한 경우
+    - stratify 옵션이 꺼진 채로 호출된 경우 (안전망)
+
+    fallback: 0.5 (무작위 분류 기준점) + 경고 로그.
+    이렇게 하면 학습 루프가 죽지 않고 다음 epoch 로 진행 가능.
+    """
+    if np.unique(y_true).size < 2:
+        logger.warning(
+            "[DL] %s split 에 단일 클래스만 존재 → AUC fallback 0.5 (label 분포 점검 필요)",
+            split_name,
+        )
+        return 0.5
+    return float(roc_auc_score(y_true, y_score))
+
+
+def _safe_pr_auc(y_true: np.ndarray, y_score: np.ndarray, split_name: str) -> float:
+    """단일 클래스 split 에서도 안전한 PR AUC (average precision) 계산.
+
+    average_precision_score 는 y_true 에 양성이 0건이면 NaN 또는 정의 불가.
+    fallback: 0.0 (precision 측정 불가) + 경고 로그.
+    """
+    if np.unique(y_true).size < 2:
+        logger.warning("[DL] %s split 에 단일 클래스만 존재 → PR-AUC fallback 0.0", split_name)
+        return 0.0
+    return float(average_precision_score(y_true, y_score))
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -234,7 +274,13 @@ def train_lstm(
     if device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"
     device = torch.device(device)
-    logger.info("[DL] device=%s, train=%d, val=%d, test=%d", device, len(y_train), len(y_val), len(y_test))
+    logger.info(
+        "[DL] device=%s, train=%d, val=%d, test=%d",
+        device,
+        len(y_train),
+        len(y_val),
+        len(y_test),
+    )
 
     # ── DataLoader 구성 ─────────────────────────────────────
     def _make_loader(seq: np.ndarray, y: np.ndarray, shuffle: bool) -> "DataLoader":
@@ -268,7 +314,12 @@ def train_lstm(
         n_pos = float((y_train == 1).sum())
         n_neg = float((y_train == 0).sum())
         pos_weight = torch.tensor([n_neg / max(n_pos, 1.0)], device=device)
-        logger.info("[DL] pos_weight=%.3f (n_neg=%.0f / n_pos=%.0f)", pos_weight.item(), n_neg, n_pos)
+        logger.info(
+            "[DL] pos_weight=%.3f (n_neg=%.0f / n_pos=%.0f)",
+            pos_weight.item(),
+            n_neg,
+            n_pos,
+        )
     else:
         pos_weight = None
 
@@ -310,11 +361,11 @@ def train_lstm(
                 n_samples += len(y_batch)
             train_loss = train_loss_sum / n_samples
 
-            # val 평가
+            # val 평가 — 단일 클래스 split 가드 사용 (CodeRabbit Major)
             val_proba, val_y = _evaluate(model, val_loader, device)
             val_pred = (val_proba >= 0.5).astype(int)
-            val_auc = float(roc_auc_score(val_y, val_proba))
-            val_pr_auc = float(average_precision_score(val_y, val_proba))
+            val_auc = _safe_roc_auc(val_y, val_proba, "val")
+            val_pr_auc = _safe_pr_auc(val_y, val_proba, "val")
             val_f1 = float(f1_score(val_y, val_pred, zero_division=0))
 
             history.append(
@@ -367,9 +418,10 @@ def train_lstm(
     test_proba, test_y = _evaluate(model, test_loader, device)
     test_pred = (test_proba >= 0.5).astype(int)
 
+    # Test 평가도 안전 가드 적용 (test 도 우연히 단일 클래스 가능성 — drop_last 등)
     test_metrics = {
-        "auc": float(roc_auc_score(test_y, test_proba)),
-        "pr_auc": float(average_precision_score(test_y, test_proba)),
+        "auc": _safe_roc_auc(test_y, test_proba, "test"),
+        "pr_auc": _safe_pr_auc(test_y, test_proba, "test"),
         "f1": float(f1_score(test_y, test_pred, zero_division=0)),
         "precision": float(precision_score(test_y, test_pred, zero_division=0)),
         "recall": float(recall_score(test_y, test_pred, zero_division=0)),

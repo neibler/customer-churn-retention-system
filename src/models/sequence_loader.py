@@ -122,12 +122,26 @@ def load_event_sequences(
 
     Args:
         events_path: data/raw/events.csv
-        max_len: 시퀀스 최대 길이 (default 100)
+        max_len: 시퀀스 최대 길이 (default 100). **1 이상의 정수여야 함**.
         id_col, event_col, date_col: 컬럼명 (시뮬레이터 출력 기준)
 
     Returns:
         SequenceData. cid_to_row 로 customer_id 매칭 가능.
+
+    Raises:
+        ValueError: max_len 이 1 미만이거나 정수가 아닌 경우.
+        FileNotFoundError: events_path 가 존재하지 않는 경우.
     """
+    # ── max_len fail-fast 검증 ────────────────────────────────
+    # yaml 오타(예: max_seq_len: -100 또는 0)나 잘못된 호출자를 사전 차단.
+    # 검증 없이 0/음수 전달 시 np.zeros((n, 0)) 빈 텐서 생성되어 LSTM forward
+    # 에서 opaque error 발생 → 디버깅 어려움. 여기서 명시적 ValueError.
+    if not isinstance(max_len, int) or max_len < 1:
+        raise ValueError(
+            f"[SeqLoader] max_len 은 1 이상의 정수여야 함. 받음: {max_len!r} "
+            f"(type={type(max_len).__name__}). config 의 max_seq_len 값 확인."
+        )
+
     events_path = Path(events_path)
     if not events_path.exists():
         raise FileNotFoundError(
