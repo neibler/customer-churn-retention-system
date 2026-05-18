@@ -107,6 +107,35 @@ threshold:
   precision_target: 0.70
   recall_target: 0.70
 
+  # ════════════════════════════════════════════════════════════════
+# DL (LSTM) 학습 설정 (태스크 2.14)
+# 명세서 §5.5 요구사항:
+#   - 고객 행동 시퀀스 입력 LSTM
+#   - 패딩, 임베딩
+#   - Early Stopping
+#   - ML 모델과 동일 테스트셋에서 비교
+#
+# enabled: false 또는 CLI --skip_dl 로 우회 가능 (torch 미설치 환경 대응).
+# ════════════════════════════════════════════════════════════════
+dl:
+  enabled: true
+  device: auto              # "auto" / "cpu" / "cuda"
+  max_seq_len: 100          # 최근 100개 이벤트만 보존 (90 분위수 ~80)
+  # 모델 아키텍처
+  embed_dim: 16             # event_type 임베딩 차원 (9 vocab → 16 dim 충분)
+  hidden_dim: 64            # LSTM hidden state 크기
+  n_layers: 2               # LSTM 층 수
+  lstm_dropout: 0.2         # LSTM layer 사이 dropout (n_layers>1 일 때만 작동)
+  fc_dropout: 0.3           # FC 직전 dropout (과적합 방지)
+  # 학습 설정
+  learning_rate: 0.001      # Adam lr
+  batch_size: 64            # CPU 환경 적정
+  max_epochs: 30            # early stopping 으로 보통 10~15 epoch 에서 종료
+  early_stopping_patience: 3  # val AUC 3 epoch 개선 없으면 중단
+  pos_weight_auto: true     # BCEWithLogitsLoss 의 pos_weight 자동 (n_neg/n_pos)
+  # 저장
+  model_filename: "lstm_{version}.pt"
+
 # ════════════════════════════════════════════════════════════════
 # 로깅
 # ════════════════════════════════════════════════════════════════
