@@ -263,6 +263,9 @@ def train_lstm(
 
     Returns:
         DLTrainResult — test_metrics, best epoch, history, model 포함.
+
+    Raises:
+        ValueError: train split 에 단일 클래스만 존재할 때 (fail-fast).
     """
     # ── 재현성 시드 ──────────────────────────────────────────
     # ml_trainer 와 동일한 random_state 패턴.
@@ -307,6 +310,22 @@ def train_lstm(
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
+    # ── 단일 클래스 train split 가드 (CodeRabbit Major) ─────
+    # val/test 는 _safe_roc_auc / _safe_pr_auc 로 graceful fallback 처리하지만,
+    # train split 은 fail-fast 가 옳다. 이유:
+    #   - n_pos=0 → pos_weight = n_neg / max(0, 1.0) = n_neg (큰 값) → 정상처럼
+    #     보이지만 양성 샘플이 없어 학습 자체가 무의미.
+    #   - n_neg=0 → pos_weight = 0 / n_pos = 0 → BCEWithLogitsLoss 의 양성 손실
+    #     기여가 0 이 되어, 음성 샘플이 없는데도 loss 신호가 사라짐. 결과적으로
+    #     untrained 모델이 silent 하게 반환되는 매우 위험한 시나리오.
+    # 따라서 pos_weight 계산 전에 명시적으로 차단한다.
+    if np.unique(y_train).size < 2:
+        raise ValueError(
+            "[DL] train split 에 단일 클래스만 존재합니다 "
+            f"(unique labels = {np.unique(y_train).tolist()}). "
+            "data split 또는 stratify 설정을 점검하세요."
+        )
+
     # 클래스 불균형 처리: pos_weight = n_neg / n_pos.
     # SMOTE 가 시퀀스에 부적합하므로 loss-level 처리 (명세서 §5.4.2 권장 옵션
     # 중 class_weight 와 동등 — 다만 BCEWithLogitsLoss 의 pos_weight 형태).
@@ -316,6 +335,7 @@ def train_lstm(
     if pos_weight_auto:
         n_pos = float((y_train == 1).sum())
         n_neg = float((y_train == 0).sum())
+        # 위 가드를 통과했으므로 n_pos > 0 && n_neg > 0 보장. max() 는 안전망.
         pos_weight = torch.tensor([n_neg / max(n_pos, 1.0)], device=device)
         logger.info(
             "[DL] pos_weight=%.3f (n_neg=%.0f / n_pos=%.0f)",
@@ -453,6 +473,14 @@ def save_dl_model(model: ChurnLSTM, path: str | Path) -> None:
     state_dict + 하이퍼파라미터를 dict 로 묶어 저장.
 
     명세서 §5.5.6 "DL 모델 파일/학습 로그/ML 대비 비교 리포트를 저장" 충족.
+
+    저장 포맷 (load_dl_model 의 weights_only=True 와 호환되도록 유지):
+        {
+            "state_dict": OrderedDict[str, Tensor],
+            "hparams":    dict[str, int],   # 원시 타입만
+        }
+    safe unpickler 가 허용하는 타입(dict / OrderedDict / int / Tensor) 만
+    사용하므로 로드 시 weights_only=True 로 안전하게 읽을 수 있다.
     """
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -474,13 +502,13 @@ def save_dl_model(model: ChurnLSTM, path: str | Path) -> None:
 def load_dl_model(path: str | Path) -> ChurnLSTM:
     """LSTM 모델 로드. save_dl_model 의 짝.
 
-    보안 주의: torch.load 도 내부적으로 pickle 사용. 신뢰할 수 있는 출처의
-    .pt 파일만 로드할 것 (ml_trainer.load_model 과 동일한 가드 정신).
+    보안: weights_only=True (PyTorch 2.0+) 로 safe unpickler 사용.
+    save_dl_model 의 체크포인트는 dict / OrderedDict[str, Tensor] / 원시 int
+    만으로 구성되어 있어 safe unpickler 가 모두 지원한다 — 임의 클래스
+    pickle 실행 경로를 차단하면서도 hparams 까지 정상 복원된다.
+    (CodeRabbit Major 반영: weights_only=False → True)
     """
-    # weights_only=True 는 PyTorch 2.0+ 의 보안 옵션이지만 state_dict 만 로드
-    # 가능하고 hparams dict 를 못 읽어서 weights_only=False 유지.
-    # 신뢰할 수 있는 자체 학습 산출물만 로드한다는 가정.
-    checkpoint = torch.load(path, weights_only=False, map_location="cpu")
+    checkpoint = torch.load(path, weights_only=True, map_location="cpu")
     model = ChurnLSTM(**checkpoint["hparams"])
     model.load_state_dict(checkpoint["state_dict"])
     return model
