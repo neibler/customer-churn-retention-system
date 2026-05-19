@@ -220,6 +220,12 @@ def run_budget_pipeline(
     cost_per_customer: float = COST_PER_CUSTOMER,
 ) -> pd.DataFrame:
     """전체 예산 최적화 파이프라인."""
+    # 입력값 검증
+    if budget <= 0:
+        raise ValueError(f"[Budget] budget은 0보다 커야 합니다. (입력값: {budget})")
+    if cost_per_customer <= 0:
+        raise ValueError(f"[Budget] cost_per_customer는 0보다 커야 합니다. (입력값: {cost_per_customer})")
+
     data_dir   = Path(data_dir)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

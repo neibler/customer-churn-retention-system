@@ -2,7 +2,7 @@
 
 ## 1. 개요
 
-본 문서는 Uplift Modeling 및 CLV 예측 결과를 바탕으로 6세그먼트(segments_6plus.csv)에 대한
+본 문서는 Uplift Modeling 및 CLV 예측 결과를 바탕으로 4분면 세그먼트(uplift_segments.csv)에 대한
 고객별 리텐션 전략을 제안한다. 제한된 마케팅 예산 내에서 ROI를 극대화하기 위해
 **Uplift Score × CLV 결합 우선순위** 기반 차등 전략을 적용한다.
 

@@ -134,13 +134,19 @@ def run_ab_test(df: pd.DataFrame) -> dict:
 
 
 def segment_ab_test(df: pd.DataFrame) -> list[dict]:
-    """세그먼트별 A/B 테스트 결과."""
+    """세그먼트별 A/B 테스트 결과. Sleeping Dogs는 개입 제외 정책에 따라 분석에서 제외."""
+    # Sleeping Dogs: 마케팅 개입 금지 세그먼트 — 명시적 제외
+    EXCLUDED_SEGMENTS = {"Sleeping Dogs"}
     results = []
     for seg in df["segment"].unique():
+        if seg in EXCLUDED_SEGMENTS:
+            print(f"[AB Test] '{seg}' 세그먼트는 개입 제외 정책으로 분석 스킵")
+            continue
         seg_df = df[df["segment"] == seg]
         ctrl = seg_df[seg_df["is_treatment"] == 0]["churned"]
         trt  = seg_df[seg_df["is_treatment"] == 1]["churned"]
         if len(ctrl) < 5 or len(trt) < 5:
+            print(f"[AB Test] '{seg}' 세그먼트 표본 부족 (ctrl={len(ctrl)}, trt={len(trt)}) — 스킵")
             continue
         try:
             count = np.array([ctrl.sum(), trt.sum()])
@@ -156,8 +162,8 @@ def segment_ab_test(df: pd.DataFrame) -> list[dict]:
                 "p_value":           round(float(p_val), 6),
                 "significant":       bool(p_val < ALPHA),
             })
-        except Exception:
-            continue
+        except Exception as e:
+            print(f"[AB Test] '{seg}' 세그먼트 검정 실패: {e}")
     return results
 
 
@@ -285,15 +291,25 @@ def run_ab_pipeline(
     print("[AB Test] 세그먼트별 분석...")
     seg_results = segment_ab_test(df)
 
-    # 5. 저장
-    full_result = {
+    # 5. 저장 — NaN/Infinity → null 변환 후 엄격한 JSON 직렬화
+    def sanitize(obj):
+        """재귀적으로 NaN/Infinity를 None으로 변환."""
+        if isinstance(obj, float) and (np.isnan(obj) or np.isinf(obj)):
+            return None
+        if isinstance(obj, dict):
+            return {k: sanitize(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [sanitize(v) for v in obj]
+        return obj
+
+    full_result = sanitize({
         "power_analysis": power_result,
         "overall_test":   ab_result,
         "segment_tests":  seg_results,
-    }
+    })
     result_path = output_dir / "ab_test_result.json"
     with open(result_path, "w", encoding="utf-8") as f:
-        json.dump(full_result, f, ensure_ascii=False, indent=2)
+        json.dump(full_result, f, ensure_ascii=False, indent=2, allow_nan=False)
     print(f"[AB Test] 결과 저장: {result_path}")
 
     # 6. 리포트
