@@ -310,6 +310,9 @@ def train_lstm(
     # 클래스 불균형 처리: pos_weight = n_neg / n_pos.
     # SMOTE 가 시퀀스에 부적합하므로 loss-level 처리 (명세서 §5.4.2 권장 옵션
     # 중 class_weight 와 동등 — 다만 BCEWithLogitsLoss 의 pos_weight 형태).
+    if np.unique(y_train).size < 2:
+        raise ValueError("[DL] train split must contain both classes")
+
     if pos_weight_auto:
         n_pos = float((y_train == 1).sum())
         n_neg = float((y_train == 0).sum())
