@@ -511,6 +511,7 @@ def load_dl_model(path: str | Path) -> ChurnLSTM:
     checkpoint = torch.load(path, weights_only=True, map_location="cpu")
     model = ChurnLSTM(**checkpoint["hparams"])
     model.load_state_dict(checkpoint["state_dict"])
+    model.eval()
     return model
 
 
