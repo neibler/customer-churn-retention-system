@@ -5,7 +5,7 @@ Uplift Score + CLV를 결합하여 제한된 예산 내 ROI를 극대화하는
 
 방법론
 ------
-1. 그리디 알고리즘: ROI 기준 내림차순 정렬 후 예산 소진까지 선택
+1. 그리디 알고리즘: priority score(uplift×0.5 + CLV×0.3 + 세그먼트×0.2) 기준 내림차순 정렬 후 예산 소진까지 선택
 2. LP (선형 계획법): PuLP를 이용한 최적화
 
 What-if 분석
@@ -41,7 +41,6 @@ warnings.filterwarnings("ignore")
 # 기본 설정
 DEFAULT_BUDGET = 50_000_000       # 기본 예산 5천만원
 COST_PER_CUSTOMER = 5_000         # 고객 1인당 마케팅 비용 5천원
-UPLIFT_THRESHOLD = 0.05           # Persuadables 최소 uplift 기준
 SEGMENT_PRIORITY = {              # 세그먼트별 우선순위 가중치
     "Persuadables": 1.0,
     "Sure Things": 0.4,
@@ -221,8 +220,8 @@ def run_budget_pipeline(
 ) -> pd.DataFrame:
     """전체 예산 최적화 파이프라인."""
     # 입력값 검증
-    if budget <= 0:
-        raise ValueError(f"[Budget] budget은 0보다 커야 합니다. (입력값: {budget})")
+    if budget < 0:
+        raise ValueError(f"[Budget] budget은 0 이상이어야 합니다. (입력값: {budget})")
     if cost_per_customer <= 0:
         raise ValueError(f"[Budget] cost_per_customer는 0보다 커야 합니다. (입력값: {cost_per_customer})")
 

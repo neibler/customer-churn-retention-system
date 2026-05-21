@@ -27,7 +27,10 @@ import pandas as pd
 from scipy import stats
 from statsmodels.stats.proportion import proportions_ztest
 
-warnings.filterwarnings("ignore")
+# 특정 경고만 필터링 (전역 억제 대신 명시적 지정)
+warnings.filterwarnings("ignore", category=RuntimeWarning, module="scipy")
+warnings.filterwarnings("ignore", category=RuntimeWarning, module="statsmodels")
+warnings.filterwarnings("ignore", message="divide by zero encountered")
 
 # Power Analysis 기본 설정
 ALPHA       = 0.05    # 유의수준
