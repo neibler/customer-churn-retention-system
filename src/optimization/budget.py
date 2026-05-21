@@ -5,7 +5,7 @@ Uplift Score + CLV를 결합하여 제한된 예산 내 ROI를 극대화하는
 
 방법론
 ------
-1. 그리디 알고리즘: priority score(uplift×0.5 + CLV×0.3 + 세그먼트×0.2) 기준 내림차순 정렬 후 예산 소진까지 선택
+1. 그리디 알고리즘: priority score(uplift*0.5 + CLV*0.3 + 세그먼트*0.2) 기준 내림차순 정렬 후 예산 소진까지 선택
 2. LP (선형 계획법): PuLP를 이용한 최적화
 
 What-if 분석
