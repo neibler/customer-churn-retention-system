@@ -1,30 +1,30 @@
 """
-배한솔 파트 메인 학습 파이프라인 (ML 파트, Threshold 까지)
+배한솔 파트 메인 학습 파이프라인 (ML + DL)
 
 사용 예:
     python -m src.main_train --config config/model_config.yaml
-    python -m src.main_train --skip_optuna   # 빠른 베이스라인
+    python -m src.main_train --skip_optuna   # 빠른 베이스라인 (Optuna 제외)
     python -m src.main_train --skip_shap     # SHAP 빼고 검증
+    python -m src.main_train --skip_dl       # DL 스킵 (ML 만)
 
-역할 (5단계, ML 전용):
-1. 데이터 로드 + 검증 + split
-2. (Optuna 켜져 있으면) 하이퍼파라미터 튜닝 → CV → 최종 학습
-3. Threshold 분석 (PR Trade-off, 4가지 method)
+역할 (5단계):
+1. 데이터 로드 + 검증 + split (ml_trainer 가 쓸 집계 피처)
+2. ML: (Optuna →) CV → 최종 학습 (XGB + LGBM)
+3. Threshold 분석 (PR Trade-off)
 4. SHAP 분석 (Global + Local)
-5. 결과 요약 (model_summary.json)
+5. DL: LSTM 학습 + Early Stopping (ML 과 동일 test set 평가)
+6. 결과 요약 + ML vs DL 비교 (model_summary.json)
 
 본 PR 범위 (WBS):
--  2.9  ML 2종 비교 (XGB+LGBM)
--  2.10 클래스 불균형 처리 + 5-Fold CV (SMOTE 단일)
--  2.11 SHAP 분석 (Global+Local)
--  2.12 Optuna 하이퍼파라미터 튜닝
--  2.13 Threshold 분석 (PR Trade-off) ← NEW
+- ✅ 2.9  ML 2종 비교 (XGB+LGBM)
+- ✅ 2.10 클래스 불균형 처리 + 5-Fold CV (SMOTE 단일)
+- ✅ 2.11 SHAP 분석 (Global+Local)
+- ✅ 2.12 Optuna 하이퍼파라미터 튜닝
+- ✅ 2.13 Threshold 분석 (PR Trade-off)
+- ✅ 2.14 DL (LSTM) + Early Stopping ← NEW
 
-후속 PR 범위:
--  2.14 DL (LSTM)
--  2.15 ML vs DL + 앙상블
-
-명세서 §5.4 "이탈 예측 모델 - ML 기반" 9개 요구사항 모두 충족.
+후속 PR:
+- ⏳ 2.15 / 3.9 / 3.10 ML+DL 앙상블 (weighted_avg)
 """
 
 # ── 표준 라이브러리 ─────────────────────────────────────────────
@@ -57,13 +57,12 @@ from src.models.shap_analyzer import (
 )
 from src.models.threshold_analyzer import find_best_threshold, plot_threshold_curve
 
+# NOTE: dl_trainer / sequence_loader 는 torch 의존성이 큰 import 라
+# --skip_dl 사용 시 import 비용 회피하기 위해 main() 안에서 지연 import.
+
 
 def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
-    """로깅 초기화. 콘솔 + 파일 동시 출력.
-
-    force=True 인 이유: pytest 등 다른 환경이 미리 logging 을 설정했을 수 있어,
-    이걸 덮어쓰지 않으면 우리 핸들러가 무시됨.
-    """
+    """로깅 초기화. 콘솔 + 파일 동시 출력."""
     handlers: list[logging.Handler] = [logging.StreamHandler()]
 
     if log_file:
@@ -79,10 +78,7 @@ def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
 
 
 def run_ml_pipeline(cfg: dict[str, Any], split, kind: str, run_optuna: bool) -> dict[str, Any]:
-    """단일 ML 모델(kind) 의 (Optuna →) CV → 최종 학습 → 평가.
-
-    XGBoost, LightGBM 두 번 호출되므로 공통 로직을 함수로.
-    """
+    """단일 ML 모델(kind) 의 (Optuna →) CV → 최종 학습 → 평가."""
     base_params = cfg[kind]["default_params"]
     es_rounds = cfg[kind].get("early_stopping_rounds")
     random_state = cfg["data"]["random_state"]
@@ -91,7 +87,6 @@ def run_ml_pipeline(cfg: dict[str, Any], split, kind: str, run_optuna: bool) -> 
     used_params = base_params
     optuna_result = None
 
-    # ── (선택) Optuna 튜닝 (태스크 2.12) ─────────────────────
     if run_optuna:
         space = cfg["optuna"]["search_space"][kind]
         optuna_result = tune_with_optuna(
@@ -113,7 +108,6 @@ def run_ml_pipeline(cfg: dict[str, Any], split, kind: str, run_optuna: bool) -> 
         save_optuna_result(optuna_result, output_path=results_dir / f"optuna_best_{kind}.json")
         plot_optuna_history(optuna_result, output_path=results_dir / f"optuna_history_{kind}.png")
 
-    # ── CV (안정성 검증 + OOF 생성) ─────────────────────────
     cv_res = cross_validate_model(
         kind=kind,
         X=split.X_train,
@@ -125,7 +119,6 @@ def run_ml_pipeline(cfg: dict[str, Any], split, kind: str, run_optuna: bool) -> 
         random_state=random_state,
     )
 
-    # ── 최종 학습 + test 평가 ────────────────────────────────
     final_model, test_metrics, test_proba = fit_final_and_evaluate(
         kind=kind,
         split=split,
@@ -153,14 +146,103 @@ def run_ml_pipeline(cfg: dict[str, Any], split, kind: str, run_optuna: bool) -> 
     }
 
 
+def run_dl_pipeline(cfg: dict[str, Any], split) -> dict[str, Any]:
+    """LSTM 학습 + Early Stopping + Test 평가 (태스크 2.14).
+
+    명세서 §5.5 요구사항:
+    - 고객 행동 시퀀스 입력 LSTM → events.csv 에서 sequence_loader 가 변환
+    - 패딩, 임베딩 → sequence_loader / ChurnLSTM 이 처리
+    - Early Stopping → val AUC 기준 patience epoch
+    - ML 모델과 동일 테스트셋 비교 → split.X_test 의 customer_id 로 시퀀스 매칭
+
+    ml_trainer 와 다르게 X (집계 피처) 가 아닌 events.csv 의 *원시 시퀀스* 를
+    학습 입력으로 사용. 동일한 train/val/test 분할(같은 customer_id 집합)을
+    유지하여 ML 과 직접 비교 가능.
+    """
+    # 지연 import: --skip_dl 시 torch import 비용 회피
+    from src.models.dl_trainer import (
+        save_dl_metrics,
+        save_dl_model,
+        train_lstm,
+    )
+    from src.models.sequence_loader import load_event_sequences
+
+    dl_cfg = cfg["dl"]
+    random_state = cfg["data"]["random_state"]
+
+    # ── 1) events.csv → 시퀀스 변환 ────────────────────────────
+    seq_data = load_event_sequences(
+        events_path=cfg["paths"]["events"],
+        max_len=dl_cfg["max_seq_len"],
+        id_col=cfg["data"]["id_col"],
+    )
+
+    # ── 2) ML split 의 customer_id 순서대로 시퀀스 매칭 ────────
+    # split.cid_train/val/test 와 동일한 순서로 시퀀스 추출 → 라벨 정합 보장.
+    seq_train, _ = seq_data.select_by_cids(split.cid_train)
+    seq_val, _ = seq_data.select_by_cids(split.cid_val)
+    seq_test, _ = seq_data.select_by_cids(split.cid_test)
+
+    import numpy as np  # 지역 import (DL 블록에서만 필요)
+
+    y_train = split.y_train.to_numpy().astype(np.int64)
+    y_val = split.y_val.to_numpy().astype(np.int64)
+    y_test = split.y_test.to_numpy().astype(np.int64)
+
+    # ── 3) LSTM 학습 + Early Stopping ─────────────────────────
+    log_file = Path(cfg["paths"].get("logs_dir", "logs/")) / "lstm_training.log"
+
+    result = train_lstm(
+        seq_train=seq_train,
+        y_train=y_train,
+        seq_val=seq_val,
+        y_val=y_val,
+        seq_test=seq_test,
+        y_test=y_test,
+        embed_dim=dl_cfg["embed_dim"],
+        hidden_dim=dl_cfg["hidden_dim"],
+        n_layers=dl_cfg["n_layers"],
+        lstm_dropout=dl_cfg["lstm_dropout"],
+        fc_dropout=dl_cfg["fc_dropout"],
+        learning_rate=dl_cfg["learning_rate"],
+        batch_size=dl_cfg["batch_size"],
+        max_epochs=dl_cfg["max_epochs"],
+        early_stopping_patience=dl_cfg["early_stopping_patience"],
+        pos_weight_auto=dl_cfg["pos_weight_auto"],
+        device=dl_cfg.get("device", "auto"),
+        random_state=random_state,
+        log_file=log_file,
+    )
+
+    print(result.summary())
+
+    # ── 4) 모델 + 메트릭 저장 (명세서 §5.5.6) ─────────────────
+    models_dir = Path(cfg["paths"]["models_dir"])
+    results_dir = Path(cfg["paths"]["results_dir"])
+    lstm_filename = dl_cfg["model_filename"].format(version=cfg["model_version"])
+    save_dl_model(result.final_model, models_dir / lstm_filename)
+    save_dl_metrics(result, results_dir / "dl_metrics.json")
+
+    return {
+        "kind": "lstm",
+        "test_metrics": result.test_metrics,
+        "test_proba": result.test_proba,
+        "best_val_auc": result.best_val_auc,
+        "best_epoch": result.best_epoch,
+        "epochs_trained": result.epochs_trained,
+        "final_model": result.final_model,
+    }
+
+
 def main() -> int:
     """메인 진입점. exit code 반환 (0=성공)."""
 
     # ── CLI 인자 ────────────────────────────────────────────
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config/model_config.yaml")
-    parser.add_argument("--skip_optuna", action="store_true", help="Optuna 튜닝 스킵 (빠른 베이스라인)")
-    parser.add_argument("--skip_shap", action="store_true", help="SHAP 분석 스킵 (빠른 검증)")
+    parser.add_argument("--skip_optuna", action="store_true", help="Optuna 튜닝 스킵")
+    parser.add_argument("--skip_shap", action="store_true", help="SHAP 분석 스킵")
+    parser.add_argument("--skip_dl", action="store_true", help="DL(LSTM) 스킵 (torch 미설치 환경)")
     args = parser.parse_args()
 
     # ── 설정 + 로깅 ─────────────────────────────────────────
@@ -169,14 +251,14 @@ def main() -> int:
     logger = logging.getLogger("main_train")
 
     run_optuna = cfg.get("optuna", {}).get("enabled", False) and not args.skip_optuna
-    if run_optuna:
-        logger.info(
-            "[Optuna] 활성화 (n_trials=%d, timeout=%ds)",
-            cfg["optuna"]["n_trials"],
-            cfg["optuna"]["timeout_seconds"],
-        )
-    else:
-        logger.info("[Optuna] 비활성화 — default_params 로 학습")
+    run_dl = cfg.get("dl", {}).get("enabled", False) and not args.skip_dl
+
+    logger.info(
+        "[Pipeline] Optuna=%s, SHAP=%s, DL=%s",
+        run_optuna,
+        not args.skip_shap,
+        run_dl,
+    )
 
     # ══════════════════════════════════════════════════════════════
     # 1. 데이터 로드 + 검증 + 분할
@@ -200,32 +282,24 @@ def main() -> int:
     )
 
     # ══════════════════════════════════════════════════════════════
-    # 2. ML 모델 2종 (태스크 2.9, 2.10, 2.12)
+    # 2. ML 모델 2종
     # ══════════════════════════════════════════════════════════════
     xgb_res = run_ml_pipeline(cfg, split, "xgboost", run_optuna)
     lgbm_res = run_ml_pipeline(cfg, split, "lightgbm", run_optuna)
 
-    # ── AUC 0.78 체크 (WBS 필수 요구사항) ───────────────────
-    best_auc = max(xgb_res["test_metrics"]["auc"], lgbm_res["test_metrics"]["auc"])
+    best_ml_auc = max(xgb_res["test_metrics"]["auc"], lgbm_res["test_metrics"]["auc"])
     logger.info("=" * 60)
-    logger.info("최고 단일 모델 test AUC = %.4f (목표: 0.78)", best_auc)
-    if best_auc < 0.78:
-        if run_optuna:
-            logger.warning("⚠️ Optuna 튜닝 후에도 AUC 0.78 미달! " "피처 추가 또는 후속 PR 의 앙상블 보강 필요.")
-        else:
-            logger.warning("⚠️ AUC 0.78 미달! --skip_optuna 빼고 다시 실행하거나 " "후속 PR 의 앙상블 보강 필요.")
+    logger.info("ML 최고 test AUC = %.4f (목표: 0.78)", best_ml_auc)
     logger.info("=" * 60)
 
     # ══════════════════════════════════════════════════════════════
-    # 3. Threshold 분석 (태스크 2.13)
+    # 3. Threshold 분석 (ML best 모델 기준)
     # ══════════════════════════════════════════════════════════════
-    # 더 잘한 모델 기준으로 threshold 분석 (SHAP 과 일관)
-    best = xgb_res if xgb_res["test_metrics"]["auc"] >= lgbm_res["test_metrics"]["auc"] else lgbm_res
-    logger.info("[Threshold] best model = %s (test AUC=%.4f)", best["kind"], best["test_metrics"]["auc"])
+    best_ml = xgb_res if xgb_res["test_metrics"]["auc"] >= lgbm_res["test_metrics"]["auc"] else lgbm_res
 
     thr_res = find_best_threshold(
         y_true=split.y_test.values,
-        y_proba=best["test_proba"],
+        y_proba=best_ml["test_proba"],
         method=cfg["threshold"]["method"],
         precision_target=cfg["threshold"]["precision_target"],
         recall_target=cfg["threshold"]["recall_target"],
@@ -234,18 +308,17 @@ def main() -> int:
 
     plot_threshold_curve(
         split.y_test.values,
-        best["test_proba"],
+        best_ml["test_proba"],
         selected_threshold=thr_res.threshold,
         output_path=cfg["paths"]["threshold_curve"],
     )
 
     # ══════════════════════════════════════════════════════════════
-    # 4. SHAP 분석 (태스크 2.11) - 필수 산출물
+    # 4. SHAP 분석 (ML best 모델 기준) - 필수 산출물
     # ══════════════════════════════════════════════════════════════
     if not args.skip_shap:
-        # threshold 분석과 동일한 best 모델 사용
         sv, X_sample = compute_shap_values(
-            best["final_model"],
+            best_ml["final_model"],
             split.X_test,
             sample_size=cfg["shap"]["sample_size"],
             random_state=cfg["data"]["random_state"],
@@ -263,17 +336,35 @@ def main() -> int:
         print(top_feats.to_string(index=False))
 
         plot_local_explanations(
-            best["final_model"],
+            best_ml["final_model"],
             sv,
             X_sample,
             output_dir=Path(cfg["paths"]["results_dir"]) / "shap_local",
         )
 
     # ══════════════════════════════════════════════════════════════
-    # 5. 결과 요약 저장 (model_summary.json)
+    # 5. DL 학습 (태스크 2.14)
     # ══════════════════════════════════════════════════════════════
-    def _summarize(res: dict[str, Any]) -> dict[str, Any]:
-        """단일 모델 결과를 직렬화 가능한 dict 로 변환."""
+    dl_res = None
+    if run_dl:
+        try:
+            dl_res = run_dl_pipeline(cfg, split)
+        except FileNotFoundError as e:
+            logger.warning(
+                "[DL] events.csv 없어 DL 스킵: %s\n" "  → 시뮬레이터 먼저 실행하거나 --skip_dl 사용",
+                e,
+            )
+        except ImportError as e:
+            logger.warning(
+                "[DL] torch 미설치로 DL 스킵: %s\n"
+                "  → pip install torch>=2.0 --index-url https://download.pytorch.org/whl/cpu",
+                e,
+            )
+
+    # ══════════════════════════════════════════════════════════════
+    # 6. 결과 요약 + ML vs DL 비교 (model_summary.json)
+    # ══════════════════════════════════════════════════════════════
+    def _summarize_ml(res: dict[str, Any]) -> dict[str, Any]:
         out: dict[str, Any] = {
             "params": res["params"],
             "cv_auc_mean": res["cv_auc_mean"],
@@ -287,15 +378,40 @@ def main() -> int:
             }
         return out
 
-    summary = {
-        "xgboost": _summarize(xgb_res),
-        "lightgbm": _summarize(lgbm_res),
-        "best_test_auc": best_auc,
-        "auc_target_met": bool(best_auc >= 0.78),
-        # 태스크 2.13 결과 추가
+    summary: dict[str, Any] = {
+        "xgboost": _summarize_ml(xgb_res),
+        "lightgbm": _summarize_ml(lgbm_res),
+        "best_ml_test_auc": best_ml_auc,
+        "auc_target_met": bool(best_ml_auc >= 0.78),
         "threshold": thr_res.to_dict(),
-        "threshold_applied_to": best["kind"],
+        "threshold_applied_to": best_ml["kind"],
     }
+
+    if dl_res is not None:
+        # ML vs DL 비교 — 명세서 §5.5.4 "ML 모델과 DL 모델의 성능을 동일한
+        # 테스트셋에서 비교해야 한다" 충족
+        summary["lstm"] = {
+            "test_metrics": dl_res["test_metrics"],
+            "best_val_auc": dl_res["best_val_auc"],
+            "best_epoch": dl_res["best_epoch"],
+            "epochs_trained": dl_res["epochs_trained"],
+        }
+        best_overall_auc = max(best_ml_auc, dl_res["test_metrics"]["auc"])
+        summary["best_overall_test_auc"] = best_overall_auc
+        summary["best_overall_model"] = "lstm" if dl_res["test_metrics"]["auc"] > best_ml_auc else best_ml["kind"]
+        logger.info("=" * 60)
+        logger.info(
+            "전체 최고 test AUC = %.4f (%s)",
+            best_overall_auc,
+            summary["best_overall_model"],
+        )
+        logger.info(
+            "ML(%s) AUC=%.4f, DL(lstm) AUC=%.4f",
+            best_ml["kind"],
+            best_ml_auc,
+            dl_res["test_metrics"]["auc"],
+        )
+        logger.info("=" * 60)
 
     summary_path = Path(cfg["paths"]["results_dir"]) / "model_summary.json"
     summary_path.parent.mkdir(parents=True, exist_ok=True)
