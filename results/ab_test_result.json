@@ -1,0 +1,86 @@
+{
+  "power_analysis": {
+    "baseline_churn_rate": 0.2,
+    "target_churn_rate": 0.15,
+    "min_detectable_effect": 0.05,
+    "alpha": 0.05,
+    "power": 0.8,
+    "z_alpha": 1.96,
+    "z_beta": 0.8416,
+    "sample_size_per_group": 903,
+    "total_sample_size": 1806
+  },
+  "overall_test": {
+    "control_group": {
+      "n": 2500,
+      "churn_rate": 0.176,
+      "churned_count": 440
+    },
+    "treatment_group": {
+      "n": 2500,
+      "churn_rate": 0.1628,
+      "churned_count": 407
+    },
+    "churn_rate_reduction": 0.0132,
+    "relative_reduction_pct": 7.5,
+    "chi2_test": {
+      "chi2_stat": 1.4555,
+      "p_value": 0.227641,
+      "dof": 1,
+      "significant": false
+    },
+    "z_test": {
+      "z_stat": 1.2442,
+      "p_value": 0.213441,
+      "significant": false
+    },
+    "confidence_interval_95pct": [
+      -0.0076,
+      0.034
+    ],
+    "cohens_h": -0.0352,
+    "alpha": 0.05
+  },
+  "segment_tests": [
+    {
+      "segment": "Sleeping Dogs",
+      "n_control": 1322,
+      "n_treatment": 1434,
+      "churn_rate_ctrl": 0.0703,
+      "churn_rate_trt": 0.1646,
+      "churn_reduction": -0.0942,
+      "p_value": 0.0,
+      "significant": true
+    },
+    {
+      "segment": "Persuadables",
+      "n_control": 46,
+      "n_treatment": 11,
+      "churn_rate_ctrl": 1.0,
+      "churn_rate_trt": 0.0,
+      "churn_reduction": 1.0,
+      "p_value": 0.0,
+      "significant": true
+    },
+    {
+      "segment": "Sure Things",
+      "n_control": 831,
+      "n_treatment": 884,
+      "churn_rate_ctrl": 0.0,
+      "churn_rate_trt": 0.0,
+      "churn_reduction": 0.0,
+      "p_value": NaN,
+      "significant": false
+    },
+    {
+      "segment": "Lost Causes",
+      "n_control": 301,
+      "n_treatment": 171,
+      "churn_rate_ctrl": 1.0,
+      "churn_rate_trt": 1.0,
+      "churn_reduction": 0.0,
+      "p_value": NaN,
+      "significant": false
+    }
+  ]
+}
