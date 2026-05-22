@@ -22,6 +22,10 @@
 - ✅ 2.15 ML+DL 앙상블 ← NEW
 
 명세서 §5.4 + §5.5 ML/DL 영역 본문 100% 충족.
+
+ML best 선택 정책 (CodeRabbit Major 반영):
+- ML(XGB vs LGBM) best 는 **CV AUC** 로 선택 (test set 누설 방지).
+- test set 은 Threshold/SHAP/Ensemble 의 최종 1회 평가에만 사용.
 """
 
 # ── 표준 라이브러리 ─────────────────────────────────────────────
@@ -73,6 +77,23 @@ def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
         handlers=handlers,
         force=True,
     )
+
+
+def _is_torch_missing(err: ImportError) -> bool:
+    """ImportError 가 'torch 미설치' 가 원인인지 식별 (CodeRabbit #3 반영).
+
+    dl_trainer 는 torch import 실패 시 'raise ImportError(...) from e' 로
+    재발생시키므로, 원인 체인(__cause__/__context__) 의 ModuleNotFoundError(name='torch')
+    를 추적한다. torch 와 무관한 ImportError (예: 내부 모듈 버그) 는 False 를
+    반환해 호출부가 silent skip 하지 않고 그대로 전파하게 한다.
+    """
+    cause = err.__cause__ or err.__context__
+    if isinstance(cause, ModuleNotFoundError) and getattr(cause, "name", "") == "torch":
+        return True
+    # 직접 발생한 ModuleNotFoundError(name='torch') 도 처리
+    if isinstance(err, ModuleNotFoundError) and getattr(err, "name", "") == "torch":
+        return True
+    return False
 
 
 def run_ml_pipeline(cfg: dict[str, Any], split, kind: str, run_optuna: bool) -> dict[str, Any]:
@@ -165,9 +186,24 @@ def run_dl_pipeline(cfg: dict[str, Any], split) -> dict[str, Any]:
 
     # ML split 의 customer_id 순서대로 시퀀스 매칭 → 라벨 정합 보장.
     # 이게 ensemble 단계에서 ml_proba 와 dl_proba 의 인덱스 일치를 보장하는 핵심.
-    seq_train, _ = seq_data.select_by_cids(split.cid_train)
-    seq_val, _ = seq_data.select_by_cids(split.cid_val)
-    seq_test, _ = seq_data.select_by_cids(split.cid_test)
+    seq_train, _len_train = seq_data.select_by_cids(split.cid_train)
+    seq_val, _len_val = seq_data.select_by_cids(split.cid_val)
+    seq_test, _len_test = seq_data.select_by_cids(split.cid_test)
+
+    # ── 시퀀스-라벨 행수 정합 fail-fast (CodeRabbit #1 반영) ──────
+    # select_by_cids 는 항상 len(cids) 행을 반환하지만 (없는 CID 는 PAD 빈 시퀀스),
+    # 명시적 assert 로 시퀀스/라벨 misalignment 를 사전 차단. 이게 깨지면 DL 학습이
+    # 잘못된 라벨로 진행되고 ensemble 이 서로 다른 test 모집단을 비교하게 됨.
+    assert len(seq_train) == len(split.y_train), (
+        f"[DL] train 시퀀스 행수({len(seq_train)}) != 라벨 행수({len(split.y_train)}). "
+        "select_by_cids 와 split 의 customer_id 정합 점검 필요."
+    )
+    assert len(seq_val) == len(split.y_val), (
+        f"[DL] val 시퀀스 행수({len(seq_val)}) != 라벨 행수({len(split.y_val)})."
+    )
+    assert len(seq_test) == len(split.y_test), (
+        f"[DL] test 시퀀스 행수({len(seq_test)}) != 라벨 행수({len(split.y_test)})."
+    )
 
     import numpy as np
 
@@ -228,12 +264,13 @@ def run_ensemble_pipeline(
     핵심:
     - ml_proba 와 dl_proba 는 동일한 test set + 동일한 customer_id 순서
       (run_dl_pipeline 의 select_by_cids 가 보장).
+    - best_ml 은 **CV AUC** 로 선택된 모델 (test 누설 없음, CodeRabbit #2 반영).
     - 가중치는 ML 의 CV AUC + DL 의 best val AUC 비례 (auto_auc) 또는 fixed.
+      양쪽 다 holdout(test) 이 아닌 검증 지표라 가중치 결정에 누설 없음.
     """
     ens_cfg = cfg["ensemble"]
 
-    # 가중치 결정. ML 의 'val AUC' 는 CV 평균 사용 (fit_final_and_evaluate 는
-    # val 을 train 에 흡수해서 자체 val 예측이 없으므로 CV AUC 가 가장 가까운 대용).
+    # 가중치 결정. ML 은 CV AUC, DL 은 best val AUC 사용 (둘 다 비-holdout 지표).
     weight_ml, weight_notes = decide_weight_ml(
         method=ens_cfg["method"],
         fixed_weight_ml=ens_cfg["weight_ml"],
@@ -241,7 +278,7 @@ def run_ensemble_pipeline(
         dl_val_auc=dl_res["best_val_auc"],
     )
 
-    # 앙상블 평가 (단독 ML, 단독 DL, 앙상블 모두 같은 test set)
+    # 앙상블 평가 (단독 ML, 단독 DL, 앙상블 모두 같은 test set 1회 평가)
     result = evaluate_ensemble(
         ml_proba_test=best_ml["test_proba"],
         dl_proba_test=dl_res["test_proba"],
@@ -327,16 +364,25 @@ def main() -> int:
     xgb_res = run_ml_pipeline(cfg, split, "xgboost", run_optuna)
     lgbm_res = run_ml_pipeline(cfg, split, "lightgbm", run_optuna)
 
-    best_ml_auc = max(xgb_res["test_metrics"]["auc"], lgbm_res["test_metrics"]["auc"])
+    # ── ML best 선택: CV AUC 기준 (CodeRabbit #2 — test 누설 방지) ──
+    # 이전엔 test_metrics["auc"] 로 선택해 holdout 이 모델 선택에 누설되었음.
+    # CV AUC 로 선택하면 test set 은 Threshold/SHAP/Ensemble 의 최종 평가에만 사용.
+    best_ml = xgb_res if xgb_res["cv_auc_mean"] >= lgbm_res["cv_auc_mean"] else lgbm_res
+
+    # 로그/요약에는 test AUC 도 함께 보고 (선택은 CV 로 했음을 명시)
+    best_ml_test_auc = best_ml["test_metrics"]["auc"]
     logger.info("=" * 60)
-    logger.info("ML 최고 test AUC = %.4f (목표: 0.78)", best_ml_auc)
+    logger.info(
+        "ML best = %s (CV AUC=%.4f 로 선택) | 해당 모델 test AUC=%.4f (목표: 0.78)",
+        best_ml["kind"],
+        best_ml["cv_auc_mean"],
+        best_ml_test_auc,
+    )
     logger.info("=" * 60)
 
     # ══════════════════════════════════════════════════════════════
     # 3. Threshold 분석 (ML best 모델 기준)
     # ══════════════════════════════════════════════════════════════
-    best_ml = xgb_res if xgb_res["test_metrics"]["auc"] >= lgbm_res["test_metrics"]["auc"] else lgbm_res
-
     thr_res = find_best_threshold(
         y_true=split.y_test.values,
         y_proba=best_ml["test_proba"],
@@ -391,11 +437,19 @@ def main() -> int:
             dl_res = run_dl_pipeline(cfg, split)
         except FileNotFoundError as e:
             logger.warning(
-                "[DL] events.csv 없어 DL 스킵: %s\n" "  → 시뮬레이터 먼저 실행하거나 --skip_dl 사용",
+                "[DL] events.csv 없어 DL 스킵: %s\n"
+                "  → 시뮬레이터 먼저 실행하거나 --skip_dl 사용",
                 e,
             )
         except ImportError as e:
-            logger.warning("[DL] torch 미설치로 DL 스킵: %s", e)
+            # CodeRabbit #3: torch 미설치만 정확히 식별. 다른 ImportError 는 전파.
+            if not _is_torch_missing(e):
+                raise
+            logger.warning(
+                "[DL] torch 미설치로 DL 스킵: %s\n"
+                "  → pip install torch>=2.0 --index-url https://download.pytorch.org/whl/cpu",
+                e,
+            )
 
     # ══════════════════════════════════════════════════════════════
     # 6. Ensemble (태스크 2.15) — DL 결과가 있을 때만
@@ -424,8 +478,12 @@ def main() -> int:
     summary: dict[str, Any] = {
         "xgboost": _summarize_ml(xgb_res),
         "lightgbm": _summarize_ml(lgbm_res),
-        "best_ml_test_auc": best_ml_auc,
-        "auc_target_met": bool(best_ml_auc >= 0.78),
+        # best_ml 은 CV AUC 로 선택됨. test AUC 는 해당 모델의 최종 평가값.
+        "best_ml_selected_by": "cv_auc_mean",
+        "best_ml_kind": best_ml["kind"],
+        "best_ml_cv_auc": best_ml["cv_auc_mean"],
+        "best_ml_test_auc": best_ml_test_auc,
+        "auc_target_met": bool(best_ml_test_auc >= 0.78),
         "threshold": thr_res.to_dict(),
         "threshold_applied_to": best_ml["kind"],
     }
@@ -441,9 +499,9 @@ def main() -> int:
     if ensemble_res is not None:
         summary["ensemble"] = ensemble_res["result"].to_dict()
 
-        # best_overall_model 자동 결정: ML / DL / Ensemble 중 최고 AUC
+        # best_overall_model 자동 결정: ML / DL / Ensemble 중 최고 test AUC
         candidates = [
-            (best_ml["kind"], best_ml_auc),
+            (best_ml["kind"], best_ml_test_auc),
             ("lstm", dl_res["test_metrics"]["auc"]),
             ("ensemble", ensemble_res["test_metrics"]["auc"]),
         ]
@@ -455,7 +513,7 @@ def main() -> int:
         logger.info(
             "ML(%s) AUC=%.4f | DL(lstm) AUC=%.4f | Ensemble AUC=%.4f",
             best_ml["kind"],
-            best_ml_auc,
+            best_ml_test_auc,
             dl_res["test_metrics"]["auc"],
             ensemble_res["test_metrics"]["auc"],
         )
@@ -470,7 +528,7 @@ def main() -> int:
     elif dl_res is not None:
         # 앙상블 없이 ML vs DL 만 비교
         candidates = [
-            (best_ml["kind"], best_ml_auc),
+            (best_ml["kind"], best_ml_test_auc),
             ("lstm", dl_res["test_metrics"]["auc"]),
         ]
         best_kind, best_auc = max(candidates, key=lambda x: x[1])

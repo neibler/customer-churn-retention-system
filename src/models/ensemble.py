@@ -165,7 +165,12 @@ def ensemble_predict(
     return weight_ml * ml + w_dl * dl
 
 
-def _eval_metrics(y_true: np.ndarray, proba: np.ndarray, label: str) -> dict[str, float]:
+def _eval_metrics(
+    y_true: np.ndarray,
+    proba: np.ndarray,
+    label: str,
+    threshold: float = 0.5,
+) -> dict[str, float]:
     """ML / DL / Ensemble 모두 같은 인터페이스로 평가 (ml_trainer 와 호환).
 
     단일 클래스 가드 적용: roc_auc / pr_auc 는 _safe_* 헬퍼 사용.
@@ -173,8 +178,16 @@ def _eval_metrics(y_true: np.ndarray, proba: np.ndarray, label: str) -> dict[str
 
     Args:
         label: "ML" / "DL" / "Ensemble" — 경고 로그 식별용.
+        threshold: 확률 → 0/1 변환 임계값 (default 0.5).
+            **설계 의도 (CodeRabbit #4 응답)**: AUC/PR-AUC 는 threshold-independent
+            지표라 모델 비교의 핵심. F1/Precision/Recall 은 default 0.5 고정으로
+            ML/DL/Ensemble 을 *동일 기준* 에서 상대 비교하기 위한 baseline.
+            세 모델에 각기 다른 최적 threshold 를 적용하면 공정 비교가 깨지므로,
+            비교 단계에서는 0.5 통일. 운영용 최적 threshold 는 threshold_analyzer
+            가 별도 산출(thr_res.threshold) 하여 model_summary.json 에 저장.
+            필요 시 이 인자로 특정 threshold 평가도 가능 (유연성 확보).
     """
-    pred = (proba >= 0.5).astype(int)
+    pred = (proba >= threshold).astype(int)
     return {
         "auc": _safe_roc_auc(y_true, proba, label),
         "pr_auc": _safe_pr_auc(y_true, proba, label),
@@ -260,19 +273,25 @@ def evaluate_ensemble(
     ml_kind: str,
     weight_ml: float,
     weight_notes: str,
+    threshold: float = 0.5,
 ) -> EnsembleResult:
     """ML/DL 단독 + 앙상블 test 평가 + improvement 계산.
 
     명세서 §5.5.5 "성능 향상 여부 실험" 의 핵심 함수.
     단일 클래스 가드는 _eval_metrics 내부의 _safe_* 헬퍼가 처리.
+
+    Args:
+        threshold: F1/P/R 계산용 임계값 (default 0.5). ML/DL/Ensemble 세 모델에
+            동일 적용하여 공정 비교 보장 (_eval_metrics docstring 참조).
+            AUC/PR-AUC 는 threshold 무관하므로 모델 비교의 주 지표.
     """
     y_test = np.asarray(y_test).astype(int)
 
-    ml_metrics = _eval_metrics(y_test, np.asarray(ml_proba_test), "ML")
-    dl_metrics = _eval_metrics(y_test, np.asarray(dl_proba_test), "DL")
+    ml_metrics = _eval_metrics(y_test, np.asarray(ml_proba_test), "ML", threshold)
+    dl_metrics = _eval_metrics(y_test, np.asarray(dl_proba_test), "DL", threshold)
 
     ensemble_proba = ensemble_predict(ml_proba_test, dl_proba_test, weight_ml)
-    ensemble_metrics = _eval_metrics(y_test, ensemble_proba, "Ensemble")
+    ensemble_metrics = _eval_metrics(y_test, ensemble_proba, "Ensemble", threshold)
 
     # improvement: ensemble - best_single. 양수면 앙상블이 더 좋음.
     best_single_auc = max(ml_metrics["auc"], dl_metrics["auc"])
