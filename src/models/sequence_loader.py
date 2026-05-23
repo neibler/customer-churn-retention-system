@@ -59,6 +59,7 @@ class SequenceData:
                  LSTM 의 pack_padded_sequence 에 사용.
         cid_to_row: customer_id → sequences 의 행 인덱스 매핑.
                     ml_trainer 의 X 와 같은 customer_id 순서로 정렬 가능하게 함.
+                    ★ 키 dtype 은 항상 str (load_event_sequences 에서 강제 변환).
     """
 
     sequences: np.ndarray  # (n, max_len) int
@@ -76,6 +77,10 @@ class SequenceData:
         - 시뮬레이터 small 모드에 약 3% (5,000명 중 163명) 의 "유령 회원" 존재
         - 가입했지만 활동 0건인 고객도 비즈니스 관점에서 이탈 예측 대상
         - PAD 시퀀스 입력은 LSTM 이 "행동 정보 없음" 으로 처리 → 라벨 누설 위험 없음
+
+        ★ 매칭은 항상 str 키 기준 (cid_to_row 가 str 로 정규화되어 있음).
+          호출자의 cids dtype 이 무엇이든 (int/str/category) str 로 변환 후 lookup.
+          Retailrocket 처럼 visitorid 가 정수인 외부 데이터셋도 안전하게 작동.
         """
         max_len = self.sequences.shape[1]
 
@@ -83,8 +88,12 @@ class SequenceData:
         out_seqs = np.zeros((len(cids), max_len), dtype=np.int64)
         out_lens = np.zeros(len(cids), dtype=np.int64)
 
+        # ★ cids 를 str 로 일괄 변환 후 lookup
+        # (pd.read_csv 가 정수형 customer_id 를 int64 로 자동 추론하는 경우 대비)
+        cids_str = cids.astype(str)
+
         missing_count = 0
-        for i, cid in enumerate(cids):
+        for i, cid in enumerate(cids_str):
             if cid in self.cid_to_row:
                 row_idx = self.cid_to_row[cid]
                 out_seqs[i] = self.sequences[row_idx]
@@ -126,16 +135,13 @@ def load_event_sequences(
         id_col, event_col, date_col: 컬럼명 (시뮬레이터 출력 기준)
 
     Returns:
-        SequenceData. cid_to_row 로 customer_id 매칭 가능.
+        SequenceData. cid_to_row 의 키는 항상 str 로 정규화.
 
     Raises:
         ValueError: max_len 이 1 미만이거나 정수가 아닌 경우.
         FileNotFoundError: events_path 가 존재하지 않는 경우.
     """
     # ── max_len fail-fast 검증 ────────────────────────────────
-    # yaml 오타(예: max_seq_len: -100 또는 0)나 잘못된 호출자를 사전 차단.
-    # 검증 없이 0/음수 전달 시 np.zeros((n, 0)) 빈 텐서 생성되어 LSTM forward
-    # 에서 opaque error 발생 → 디버깅 어려움. 여기서 명시적 ValueError.
     if not isinstance(max_len, int) or max_len < 1:
         raise ValueError(
             f"[SeqLoader] max_len 은 1 이상의 정수여야 함. 받음: {max_len!r} "
@@ -149,13 +155,18 @@ def load_event_sequences(
             "  → 시뮬레이터 먼저 실행: python src/main.py --mode simulate --sim-mode small"
         )
 
-    # CSV 로드: 시뮬레이터가 수백만 건 생성하므로 memory_map=True 로 메모리 절약
     df = pd.read_csv(events_path, parse_dates=[date_col])
     logger.info("[SeqLoader] events 로드: %d 건", len(df))
 
+    # ── customer_id 를 str 로 강제 변환 ───────────────────────
+    # ★ Retailrocket 같이 visitorid 가 정수인 외부 데이터셋의 경우 pd.read_csv 가
+    # int64 로 자동 추론하는데, feature_store.parquet 의 customer_id 는 str
+    # 이라 cid_to_row dict lookup 이 100% 실패 (int "100123" != str "100123").
+    # 이를 방지하기 위해 시퀀스 변환 단계에서 str 로 통일.
+    # 시뮬레이터 (이미 "C000001" 같은 str) 에도 안전.
+    df[id_col] = df[id_col].astype(str)
+
     # ── event_type 정수 인덱싱 ────────────────────────────────
-    # map 으로 변환. EVENT_TO_IDX 에 없는 이벤트(예: 시뮬레이터 v3 신규 이벤트)
-    # 는 NaN → 0(PAD) 로 fallback + 경고. 학습 자체는 진행하되 명시적 경고.
     df["event_idx"] = df[event_col].map(EVENT_TO_IDX)
     n_unknown = int(df["event_idx"].isna().sum())
     if n_unknown:
@@ -169,34 +180,29 @@ def load_event_sequences(
     df["event_idx"] = df["event_idx"].astype(int)
 
     # ── 시간순 정렬 (필수) ────────────────────────────────────
-    # LSTM 은 입력 순서가 의미를 가지므로 customer_id 별로 event_date 오름차순.
     df = df.sort_values([id_col, date_col]).reset_index(drop=True)
 
     # ── customer_id 별 시퀀스 구성 ────────────────────────────
-    # groupby 가 가장 효율적. apply 안에서 numpy array 로 변환.
-    # tail(max_len) 으로 최근 max_len 개만 보존.
     sequences_per_cid: dict[str, np.ndarray] = {}
     for cid, group in df.groupby(id_col, sort=False):
-        # 최근 max_len 개 이벤트 추출
+        # cid 는 위에서 str 변환 후 groupby 했으므로 str 보장
         events = group["event_idx"].tail(max_len).to_numpy(dtype=np.int64)
-        sequences_per_cid[cid] = events
+        sequences_per_cid[str(cid)] = events  # 방어적으로 str() 한 번 더
 
     n_customers = len(sequences_per_cid)
     if n_customers == 0:
         raise ValueError("[SeqLoader] events.csv 에서 시퀀스 0건 추출됨.")
 
     # ── 패딩된 텐서 구성 ──────────────────────────────────────
-    # numpy 배열로 미리 할당 후 채우는 게 list 누적보다 빠름.
     sequences = np.zeros((n_customers, max_len), dtype=np.int64)
     lengths = np.zeros(n_customers, dtype=np.int64)
     cid_to_row: dict[str, int] = {}
 
     for row_idx, (cid, seq) in enumerate(sequences_per_cid.items()):
         seq_len = len(seq)
-        # left-padding: 앞쪽에 0 채우고 뒤쪽에 실제 이벤트
         sequences[row_idx, -seq_len:] = seq
         lengths[row_idx] = seq_len
-        cid_to_row[cid] = row_idx
+        cid_to_row[cid] = row_idx  # cid 는 str 보장
 
     # ── 진단 로그 ─────────────────────────────────────────────
     avg_len = float(lengths.mean())

@@ -137,6 +137,19 @@ dl:
   model_filename: "lstm_{version}.pt"
 
 # ════════════════════════════════════════════════════════════════
+# Ensemble (ML + DL 결합, 태스크 2.15)
+# 명세서 §5.5.5 "앙상블 방식의 성능 향상 여부 실험" 충족.
+# method 선택지:
+#   auto_auc : ML/DL 의 val AUC 비례 가중치 (default, 더 좋은 모델에 큰 weight)
+#   fixed    : weight_ml 값 그대로 사용 (0.5 면 50:50)
+# DL 결과 필수 — --skip_dl 시 ensemble 자동 스킵.
+# ════════════════════════════════════════════════════════════════
+ensemble:
+  enabled: true
+  method: auto_auc          # "auto_auc" 또는 "fixed"
+  weight_ml: 0.5            # method=fixed 일 때만 사용 (ML 가중치)
+
+# ════════════════════════════════════════════════════════════════
 # 로깅
 # ════════════════════════════════════════════════════════════════
 logging:
@@ -161,6 +174,7 @@ paths:
   customers: data/raw/customers.csv
   events: data/raw/events.csv
   features: data/processed/feature_store.parquet
+  logs_dir: logs/
   model_report: docs/model_report.md
   models_dir: models/
   results_dir: results/
