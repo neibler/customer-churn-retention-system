@@ -25,6 +25,66 @@ services:
       - ./config:/app/config
     command: python src/data/validate_simulator.py
 
+  feature:
+    build: .
+    container_name: churn-feature
+    env_file:
+      - .env
+    depends_on:
+      simulator:
+        condition: service_completed_successfully
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./results:/app/results
+      - ./config:/app/config
+    command: python src/main.py --mode feature
+
+  train:
+    build: .
+    container_name: churn-train
+    env_file:
+      - .env
+    depends_on:
+      feature:
+        condition: service_completed_successfully
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./results:/app/results
+      - ./config:/app/config
+    command: python src/main.py --mode train
+
+  uplift:
+    build: .
+    container_name: churn-uplift
+    env_file:
+      - .env
+    depends_on:
+      simulator:
+        condition: service_completed_successfully
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./results:/app/results
+      - ./config:/app/config
+    command: python src/main.py --mode uplift
+
+  optimize:
+    build: .
+    container_name: churn-optimize
+    env_file:
+      - .env
+    depends_on:
+      uplift:
+        condition: service_completed_successfully
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./results:/app/results
+      - ./config:/app/config
+    command: python src/main.py --mode optimize
+
   dashboard:
     build: .
     container_name: churn-dashboard
@@ -33,7 +93,9 @@ services:
     ports:
       - "8501:8501"
     depends_on:
-      validator:
+      train:
+        condition: service_completed_successfully
+      optimize:
         condition: service_completed_successfully
     volumes:
       - ./data:/app/data
@@ -41,5 +103,3 @@ services:
       - ./results:/app/results
       - ./config:/app/config
     command: streamlit run src/dashboard/app.py --server.port=8501 --server.address=0.0.0.0
-    profiles:
-      - dashboard

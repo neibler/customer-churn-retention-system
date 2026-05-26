@@ -76,6 +76,11 @@ def run_uplift() -> None:
     _main_uplift()
 
 
+def run_feature() -> None:
+    from features.validate_pipeline import run_pipeline_validation
+    run_pipeline_validation()
+
+
 def run_optimize(budget: float | None) -> None:
     """Run budget optimization pipeline.
 
