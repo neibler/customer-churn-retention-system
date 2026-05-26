@@ -402,6 +402,8 @@ def simulate_customer(
         else:
             days_no_visit = day - last_visit_day
 
+        # NOTE: AND 조건은 의도된 설계 — 확률적 이탈(daily_churn_prob)의
+        # 보조 트리거. OR로 하면 방문 중인 미구매 고객을 과도하게 이탈 처리함.
         if (
             days_no_purchase >= churn_def["no_purchase_days"]
             and days_no_visit >= churn_def["no_visit_days"]
