@@ -5,14 +5,16 @@ Usage
     python src/main.py                        # run simulator (full mode)
     python src/main.py --mode simulate        # explicit simulator run
     python src/main.py --mode simulate --sim-mode small
-    python src/main.py --mode train           # stub
-    python src/main.py --mode uplift          # stub
-    python src/main.py --mode optimize --budget 1000000  # stub
+    python src/main.py --mode feature         # build & validate feature store
+    python src/main.py --mode train           # train model (requires feature store)
+    python src/main.py --mode uplift          # uplift modeling
+    python src/main.py --mode optimize --budget 1000000
 """
 
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 from pathlib import Path
 
@@ -22,6 +24,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "simulator_config.yaml"
+FEATURE_STORE_PATH = PROJECT_ROOT / "data" / "processed" / "feature_store.parquet"
+
+logger = logging.getLogger(__name__)
 
 
 def _get_budget_default() -> float | None:
@@ -45,20 +50,51 @@ def run_simulate(sim_mode: str) -> None:
     run_simulation(config_path=CONFIG_PATH, mode=sim_mode)
 
 
+def run_feature() -> None:
+    """Build feature store and run validation pipeline (WBS 3.8)."""
+    from features.validate_pipeline import run_pipeline_validation
+
+    run_pipeline_validation()
+
+
 def run_train() -> None:
+    """Train the churn prediction model. Requires feature_store.parquet."""
+    if not FEATURE_STORE_PATH.exists():
+        logger.warning(
+            "feature_store.parquet이 없습니다. 먼저 --mode feature를 실행해주세요. "
+            "자동으로 피처 생성을 실행합니다..."
+        )
+        run_feature()
+
     from main_train import main as _main_train
     _main_train()
 
 
 def run_uplift() -> None:
+    """Run uplift modeling."""
     from models.uplift import main as _main_uplift
     _main_uplift()
 
 
 def run_optimize(budget: float | None) -> None:
-    # TODO: src/optimization/budget.py 구현 후 연결
-    budget_str = f"{budget:,.0f}" if budget is not None else "unlimited"
-    print(f"[Optimize] Optimization not yet implemented. Budget: {budget_str}")
+    """Run budget optimization pipeline.
+
+    Parameters
+    ----------
+    budget:
+        Total marketing budget in KRW. Defaults to 50,000,000 if not provided.
+    """
+    from optimization.budget import run_budget_pipeline
+
+    try:
+        run_budget_pipeline(
+            data_dir="results",
+            output_dir="results",
+            budget=budget if budget is not None else 50_000_000,
+        )
+    except Exception as exc:
+        logger.error("[Optimize] 예산 최적화 중 오류 발생: %s", exc)
+        raise
 
 
 def parse_args() -> argparse.Namespace:
@@ -67,7 +103,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--mode",
-        choices=["simulate", "train", "uplift", "optimize"],
+        choices=["simulate", "feature", "train", "uplift", "optimize"],
         default=os.getenv("APP_MODE", "simulate"),
         help="Execution mode (default: simulate, env: APP_MODE)",
     )
@@ -87,10 +123,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """Entrypoint: parse args and dispatch to the selected mode."""
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = parse_args()
 
     if args.mode == "simulate":
         run_simulate(sim_mode=args.sim_mode)
+    elif args.mode == "feature":
+        run_feature()
     elif args.mode == "train":
         run_train()
     elif args.mode == "uplift":
