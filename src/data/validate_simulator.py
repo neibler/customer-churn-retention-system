@@ -520,6 +520,30 @@ def main() -> None:
     if not overall_ok:
         sys.exit(1)
 
+    # 7. 이탈률 15~25% 검증
+    churn_rate = customers["churned"].mean()
+    if not (0.15 <= churn_rate <= 0.25):
+        print(f"[FAIL] churn rate {churn_rate:.1%} out of [15%, 25%]")
+        sys.exit(1)
+    print(f"[PASS] churn rate: {churn_rate:.1%}")
+
+    # 8. Treatment/Control 50:50 비율 검증
+    tc_ratio = customers["is_treatment"].mean()
+    if not (0.45 <= tc_ratio <= 0.55):
+        print(f"[FAIL] T/C ratio {tc_ratio:.1%} not near 50%")
+        sys.exit(1)
+    print(f"[PASS] T/C ratio: {tc_ratio:.1%}")
+
+    # 9. 8개 이벤트 타입 존재 여부 검증
+    expected_events = {"page_view", "search", "add_to_cart", "remove_from_cart",
+                       "purchase", "coupon_use", "review", "cs_contact"}
+    actual_events = set(events["event_type"].unique())
+    missing = expected_events - actual_events
+    if missing:
+        print(f"[FAIL] missing event types: {missing}")
+        sys.exit(1)
+    print(f"[PASS] all 8 event types present")
+
 
 if __name__ == "__main__":
     main()

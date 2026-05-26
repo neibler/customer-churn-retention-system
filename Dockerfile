@@ -35,4 +35,6 @@ RUN rm -rf /home/appuser/.cache/matplotlib 2>/dev/null || true
 
 USER appuser
 
+EXPOSE 8501
+
 CMD ["python", "src/main.py"]
