@@ -90,10 +90,11 @@ def run_optimize(budget: float | None) -> None:
         run_budget_pipeline(
             data_dir="results",
             output_dir="results",
-            budget=budget or 50_000_000,
+            budget=budget if budget is not None else 50_000_000,
         )
     except Exception as exc:
         logger.error("[Optimize] 예산 최적화 중 오류 발생: %s", exc)
+        raise
 
 
 def parse_args() -> argparse.Namespace:
