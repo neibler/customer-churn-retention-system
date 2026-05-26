@@ -4,8 +4,8 @@
 피처 인터페이스 계약서(docs/feature_contract.md)에 따라
 features.parquet 와 customers.csv 를 로드, 검증, 분리한다.
 
-* 피처 컬럼명은 알 필요 없다 (피처-아그노스틱) *
-* 어떤 피처가 와도 numeric/no-NaN 이기만 하면 그대로 학습 가능 *
+피처 컬럼명은 알 필요 없다 (피처-아그노스틱)
+어떤 피처가 와도 numeric/no-NaN 이기만 하면 그대로 학습 가능
 """
 
 # ── 표준 라이브러리 ─────────────────────────────────────────────
@@ -35,22 +35,66 @@ logger = logging.getLogger(__name__)
 # (2) Uplift 영역 (배한나 파트):
 #   - is_treatment, treatment : 이탈 예측 모델은 마케팅 효과와 분리해야 함
 #
-# (3) 시뮬레이터 내부 변수 (★ 중요):
+# (3) 시뮬레이터 내부 변수:
 #   - scheduled_churn_day : 시뮬레이터가 사전 샘플링한 이탈 예정일.
 #     Phase 2 행동 감쇠 메커니즘 구현용으로 customers.csv 에 노출되지만,
 #     이 값은 churn 라벨과 거의 결정론적 관계 → 명백한 타깃 누설.
 #     features 에 들어오면 즉시 차단해야 함.
 #
-# (4) 향후 추가 가능성:
+# (4) 여정 단계:
+#   - journey_stage, journey_stage_id : 'churned' 단계가 churned=1 과 100% 매칭.
+#     단독 AUC=1.0 의 명백한 누설. Uplift/CLV 등 다른 task 에선 정상 사용 가능.
+#
+# (5) 사후 정보 피처:
+#   - active_day_span : 고객의 "첫 활동일 ~ 마지막 활동일" 범위(일).
+#     이탈자는 정의상 일찍 활동을 멈추므로 active_day_span 이 자동으로 짧아짐.
+#     라벨 정의(45일 미구매 OR 90일 미방문)와 거의 결정론적 관계.
+#     단독 AUC=0.98, 잔존자 95% 가 ≥139일.
+#     RFM 의 recency_days(AUC 0.92) 는 분포가 충분히 겹쳐서 정상 신호로 유지.
+#
+# (6) 향후 추가 가능성:
 #   - signup_date 자체는 OK (시간 정보로 활용 가능),
 #     단 'days_until_churn' 같은 사후 정보 컬럼은 금지.
 FORBIDDEN_FEATURE_COLS = {
+    # 타깃 누설
     "churned",
     "is_churned",
+    # Uplift 영역 (배한나 파트 분리)
     "is_treatment",
     "treatment",
-    "scheduled_churn_day",  # 시뮬레이터 내부 변수 (target leakage)
+    # 시뮬레이터 내부 변수 (target leakage)
+    "scheduled_churn_day",
+    # 여정 단계 (target leakage — 'churned' 단계가 라벨과 1:1 매칭)
+    "journey_stage",
+    "journey_stage_id",
+    # 사후 정보 (target leakage — 활성 일수 범위는 이탈 정의와 결정론적 관계)
+    "active_day_span",
 }
+
+
+# ── 방식 B (feature_store.parquet) 메타 컬럼 ──────────────────
+# feature_store.parquet 에 임베디드된 컬럼들 중 학습에 사용하지 않을 것들.
+# FORBIDDEN_FEATURE_COLS 와 일부 중복되지만 의도가 다름:
+#   - FORBIDDEN: 들어오면 안 되는 누설 컬럼 (validate_features 가 차단)
+#   - _METADATA_COLS: 정상 컬럼이지만 학습에 안 쓸 것 (사전 제거)
+#
+# 방식 B 에서 이 set 의 컬럼들이 features_df 에 존재하면, validate_features
+# 호출 전에 일괄 추출하여 features 에서 제거한다. 이로써:
+#   1. 학습 부적합 컬럼(persona, journey_stage 같은 분석용 메타) 제거
+#   2. 누설 컬럼(journey_stage_id, active_day_span) 도 함께 제거 → validate 통과
+#   3. 향후 새 메타 컬럼 추가 시 이 set 만 갱신하면 됨 (한 곳 변경)
+#
+# 만약 새 누설 컬럼(예: future_unknown_leak)이 이 set 에 없는 상태로 들어오면,
+# validate_features 의 FORBIDDEN_FEATURE_COLS 검사가 ValueError 를 던져
+# 자동 발견된다. 두 단계 안전망 구성.
+_METADATA_COLS = (
+    "churned",  # target (메타로 추출 후 target 으로 재사용)
+    "is_treatment",  # treatment (메타로 추출 후 분석용 보존)
+    "persona",  # 시뮬레이터 메타 (string, 분석용)
+    "journey_stage",  # 시뮬레이터 메타 (string)
+    "journey_stage_id",  # 시뮬레이터 메타 (numeric, target leakage)
+    "active_day_span",  # 사후 정보 (target leakage)
+)
 
 
 @dataclass
@@ -131,23 +175,22 @@ def validate_features(features_df: pd.DataFrame, id_col: str = "customer_id") ->
     feat_cols = [c for c in features_df.columns if c != id_col]
 
     # ── (2) 금지 컬럼 미포함 (data leakage 차단) ───────────────
+    # 방식 B 에서는 _METADATA_COLS 가 사전 추출하므로 이 검사는 이미 빈 set.
+    # 만약 새 누설 컬럼이 _METADATA_COLS 에 미등록인 채로 들어오면 여기서 발견.
     forbidden_present = set(feat_cols) & FORBIDDEN_FEATURE_COLS
     if forbidden_present:
         raise ValueError(
-            f"[Contract] 금지 컬럼이 features 에 포함됨 (data leakage): {forbidden_present}"
+            f"[Contract] 금지 컬럼이 features 에 포함됨 (data leakage): {forbidden_present}\n"
+            "  → 새 누설 컬럼이면 _METADATA_COLS 와 FORBIDDEN_FEATURE_COLS 둘 다 갱신."
         )
 
     # ── (3) 모든 피처 numeric ─────────────────────────────────
     # XGBoost/LightGBM 은 카테고리 처리도 가능하지만, 일관성을 위해
     # 인코딩 책임은 피처 파트(장현우)가 진다. 모델 파트는 numeric 만 받음.
-    non_numeric = (
-        features_df[feat_cols].select_dtypes(exclude="number").columns.tolist()
-    )
+    non_numeric = features_df[feat_cols].select_dtypes(exclude="number").columns.tolist()
     if non_numeric:
         # 길어질 수 있어서 처음 10개만 표시
-        raise ValueError(
-            f"[Contract] numeric 이 아닌 피처 컬럼 {len(non_numeric)}개: {non_numeric[:10]}"
-        )
+        raise ValueError(f"[Contract] numeric 이 아닌 피처 컬럼 {len(non_numeric)}개: {non_numeric[:10]}")
 
     # ── (4) 결측 0건 ─────────────────────────────────────────
     # 결측 처리 책임도 피처 파트. 모델 파트가 임의로 imputation 하면
@@ -156,9 +199,7 @@ def validate_features(features_df: pd.DataFrame, id_col: str = "customer_id") ->
     if nan_counts.sum() > 0:
         # 어떤 컬럼에 몇 개 결측인지 보여줘야 디버깅 가능
         offenders = nan_counts[nan_counts > 0].to_dict()
-        raise ValueError(
-            f"[Contract] 결측치 발견 (피처 파트가 처리해야 함): {offenders}"
-        )
+        raise ValueError(f"[Contract] 결측치 발견 (피처 파트가 처리해야 함): {offenders}")
 
     # ── (5) inf 0건 ──────────────────────────────────────────
     # log(0), 0으로 나누기 등에서 발생. XGBoost 는 처리 가능하지만 LightGBM 은
@@ -168,9 +209,7 @@ def validate_features(features_df: pd.DataFrame, id_col: str = "customer_id") ->
         raise ValueError("[Contract] inf/-inf 발견.")
 
     # 모든 검증 통과 → 진단 로그
-    logger.info(
-        "[Contract] 검증 통과: rows=%d, features=%d", len(features_df), len(feat_cols)
-    )
+    logger.info("[Contract] 검증 통과: rows=%d, features=%d", len(features_df), len(feat_cols))
 
 
 def load_dataset(
@@ -190,12 +229,19 @@ def load_dataset(
 
     방식 B (장현우의 feature_store.parquet):
         feature_store.parquet 에 customer_id + 메타(persona, is_treatment,
-        churned) + 피처 모두 함께 저장. customers.csv 조인 불필요.
-        본 함수가 메타를 자동 추출 후 피처에서 제외 (FORBIDDEN 차단 우회).
+        churned, journey_stage, journey_stage_id, active_day_span) + 피처 모두
+        함께 저장. customers.csv 조인 불필요.
+
+        _METADATA_COLS 에 정의된 메타 컬럼들을 일괄 추출 후 features 에서 제거:
+        - 분석용 메타 (persona, journey_stage)
+        - 학습엔 쓰지만 features 에선 분리 (churned, is_treatment)
+        - 누설 컬럼 (journey_stage_id, active_day_span)
+
+        새 메타/누설 컬럼이 추가되면 _METADATA_COLS 만 갱신하면 됨.
 
     Returns:
         (X, y, treatment, customer_id, feature_names)
-        X: 피처만 (id, target, treatment 제외)
+        X: 피처만 (메타/누설/treatment 제외)
         y: 이탈 라벨 (0/1)
         treatment: treatment 라벨 (학습엔 미사용, 분석용)
         customer_id: 원본 ID 보존 (DL 시퀀스 매칭에 필요)
@@ -224,41 +270,38 @@ def load_dataset(
     if has_target and has_treatment:
         # ── 방식 B: 메타 임베디드 ─────────────────────────────
         logger.info(
-            "[Loader] 방식 B 감지: %s 에 메타 컬럼(target/treatment) 임베디드. "
-            "customers.csv 조인 생략.",
+            "[Loader] 방식 B 감지: %s 에 메타 컬럼(target/treatment) 임베디드. " "customers.csv 조인 생략.",
             features_path.name,
         )
-        # 메타 추출 후 features 에서 제거 (FORBIDDEN 검증 통과)
-        meta_cols = [
-            c
-            for c in (target_col, treatment_col, "persona")
-            if c in features_df.columns
-        ]
+
+        # 메타 컬럼 일괄 추출 후 features 에서 제거.
+        # _METADATA_COLS 에 정의된 모든 메타를 일괄 처리하므로
+        # 향후 새 메타 컬럼이 추가돼도 _METADATA_COLS 만 갱신하면 됨.
+        meta_cols = [c for c in _METADATA_COLS if c in features_df.columns]
         meta_df = features_df[[id_col] + meta_cols].copy()
         features_only = features_df.drop(columns=meta_cols)
+        logger.info("[Loader] 메타 컬럼 자동 분리: %s (features 에서 제외됨)", meta_cols)
 
-        # 추가로 string/object dtype 컬럼 자동 제외 (예: journey_stage)
-        # customer_id 는 string 일 수 있으므로 예외.
+        # 추가로 string/object dtype 컬럼 자동 제외 (예: _METADATA_COLS 가 미처
+        # 잡지 못한 새 카테고리 컬럼). customer_id 는 string 일 수 있으므로 예외.
+        # journey_stage 같은 known string 은 이미 _METADATA_COLS 에서 처리됨.
         string_cols = [
-            c
-            for c in features_only.columns
-            if c != id_col and not pd.api.types.is_numeric_dtype(features_only[c])
+            c for c in features_only.columns if c != id_col and not pd.api.types.is_numeric_dtype(features_only[c])
         ]
         if string_cols:
             logger.warning(
-                "[Loader] string/object 컬럼 자동 제외 (학습 부적합): %s. "
-                "필요 시 장현우와 인코딩 방식 합의 필요.",
+                "[Loader] string/object 컬럼 자동 제외 (학습 부적합): %s. " "필요 시 장현우와 인코딩 방식 합의 필요.",
                 string_cols,
             )
             features_only = features_only.drop(columns=string_cols)
 
-        # 이제 features_only 는 customer_id + numeric 피처만 → 계약 검증
+        # 이제 features_only 는 customer_id + numeric 피처만 → 계약 검증.
+        # 만약 _METADATA_COLS 에 미등록된 새 누설 컬럼이 들어왔다면,
+        # 여기서 validate_features 가 명시적 ValueError 를 던져 자동 발견된다.
         validate_features(features_only, id_col=id_col)
 
-        # 메타 머지
-        df = features_only.merge(
-            meta_df[[id_col, target_col, treatment_col]], on=id_col, how="inner"
-        )
+        # 메타 머지 (target, treatment 만 X 와 결합. persona/journey_stage 는 별도 분석용 보관)
+        df = features_only.merge(meta_df[[id_col, target_col, treatment_col]], on=id_col, how="inner")
 
     else:
         # ── 방식 A: customers.csv 조인 ────────────────────────
@@ -274,7 +317,9 @@ def load_dataset(
 
         customers_df = pd.read_csv(customers_path)
 
-        # 계약 검증
+        # 계약 검증 — 방식 A 에서는 features.parquet 에 journey_stage_id 가
+        # 들어와 있으면 여기서 FORBIDDEN_FEATURE_COLS 매칭으로 ValueError 발생.
+        # 의도적 차단 (방식 A 는 원시 features 만 받는 게 계약이므로).
         validate_features(features_df, id_col=id_col)
 
         # customers.csv 에 필수 컬럼이 모두 있는지 확인
@@ -295,13 +340,9 @@ def load_dataset(
 
     # ── X, y, treatment, cid 분리 ──────────────────────────────
     # feature_names: id/target/treatment 제외한 모든 컬럼
-    feature_names = [
-        c for c in df.columns if c not in (id_col, target_col, treatment_col)
-    ]
+    feature_names = [c for c in df.columns if c not in (id_col, target_col, treatment_col)]
     X = df[feature_names].copy()  # .copy() 는 SettingWithCopyWarning 방지
-    y = (
-        df[target_col].astype(int).copy()
-    )  # 이탈 라벨은 항상 int (sklearn 일부 모델은 bool 거부)
+    y = df[target_col].astype(int).copy()  # 이탈 라벨은 항상 int (sklearn 일부 모델은 bool 거부)
     treatment = df[treatment_col].astype(int).copy()
     cid = df[id_col].copy()  # ID 는 dtype 그대로 (str 일 수도 int 일 수도)
 

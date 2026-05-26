@@ -172,8 +172,8 @@ model_version: v1
 # ════════════════════════════════════════════════════════════════
 paths:
   customers: data/raw/customers.csv
-  events: data/raw/events.csv
-  features: data/processed/feature_store.parquet
+  events: data/raw/events.csv # 기존 이벤트 데이터 경로
+  features: data/processed/feature_store.parquet # 기존 피처스토어 경로
   logs_dir: logs/
   model_report: docs/model_report.md
   models_dir: models/
