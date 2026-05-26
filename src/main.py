@@ -55,6 +55,11 @@ def run_uplift() -> None:
     _main_uplift()
 
 
+def run_feature() -> None:
+    from features.validate_pipeline import run_pipeline_validation
+    run_pipeline_validation()
+
+
 def run_optimize(budget: float | None) -> None:
     # TODO: src/optimization/budget.py 구현 후 연결
     budget_str = f"{budget:,.0f}" if budget is not None else "unlimited"
@@ -67,7 +72,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--mode",
-        choices=["simulate", "train", "uplift", "optimize"],
+        choices=["simulate", "feature", "train", "uplift", "optimize"],
         default=os.getenv("APP_MODE", "simulate"),
         help="Execution mode (default: simulate, env: APP_MODE)",
     )
@@ -91,6 +96,8 @@ def main() -> None:
 
     if args.mode == "simulate":
         run_simulate(sim_mode=args.sim_mode)
+    elif args.mode == "feature":
+        run_feature()
     elif args.mode == "train":
         run_train()
     elif args.mode == "uplift":
