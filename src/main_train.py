@@ -17,14 +17,14 @@
 7. 결과 요약 + ML vs DL vs Ensemble 비교 (model_summary.json)
 
 본 PR 범위 (WBS):
-- ✅ 2.9~2.13 ML 파트 (XGB+LGBM, SMOTE, 5-Fold CV, SHAP, Optuna, Threshold)
-- ✅ 2.14 DL (LSTM) + Early Stopping
-- ✅ 2.15 ML+DL 앙상블 ← NEW
+- 2.9~2.13 ML 파트 (XGB+LGBM, SMOTE, 5-Fold CV, SHAP, Optuna, Threshold)
+- 2.14 DL (LSTM) + Early Stopping
+- 2.15 ML+DL 앙상블 ← NEW
 
 명세서 §5.4 + §5.5 ML/DL 영역 본문 100% 충족.
 
 ML best 선택 정책 (CodeRabbit Major 반영):
-- ML(XGB vs LGBM) best 는 **CV AUC** 로 선택 (test set 누설 방지).
+- ML(XGB vs LGBM) best 는 CV AUC 로 선택 (test set 누설 방지).
 - test set 은 Threshold/SHAP/Ensemble 의 최종 1회 평가에만 사용.
 """
 
@@ -198,12 +198,10 @@ def run_dl_pipeline(cfg: dict[str, Any], split) -> dict[str, Any]:
         f"[DL] train 시퀀스 행수({len(seq_train)}) != 라벨 행수({len(split.y_train)}). "
         "select_by_cids 와 split 의 customer_id 정합 점검 필요."
     )
-    assert len(seq_val) == len(split.y_val), (
-        f"[DL] val 시퀀스 행수({len(seq_val)}) != 라벨 행수({len(split.y_val)})."
-    )
-    assert len(seq_test) == len(split.y_test), (
-        f"[DL] test 시퀀스 행수({len(seq_test)}) != 라벨 행수({len(split.y_test)})."
-    )
+    assert len(seq_val) == len(split.y_val), f"[DL] val 시퀀스 행수({len(seq_val)}) != 라벨 행수({len(split.y_val)})."
+    assert len(seq_test) == len(
+        split.y_test
+    ), f"[DL] test 시퀀스 행수({len(seq_test)}) != 라벨 행수({len(split.y_test)})."
 
     import numpy as np
 
@@ -264,7 +262,7 @@ def run_ensemble_pipeline(
     핵심:
     - ml_proba 와 dl_proba 는 동일한 test set + 동일한 customer_id 순서
       (run_dl_pipeline 의 select_by_cids 가 보장).
-    - best_ml 은 **CV AUC** 로 선택된 모델 (test 누설 없음, CodeRabbit #2 반영).
+    - best_ml 은 CV AUC 로 선택된 모델 (test 누설 없음, CodeRabbit #2 반영).
     - 가중치는 ML 의 CV AUC + DL 의 best val AUC 비례 (auto_auc) 또는 fixed.
       양쪽 다 holdout(test) 이 아닌 검증 지표라 가중치 결정에 누설 없음.
     """
@@ -307,7 +305,7 @@ def run_ensemble_pipeline(
 
 
 def main() -> int:
-    """메인 진입점."""
+    """메인 진입점"""
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config/model_config.yaml")
@@ -318,7 +316,7 @@ def main() -> int:
         action="store_true",
         help="DL(LSTM) 스킵 (앙상블도 자동 스킵, torch 미설치 환경)",
     )
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     cfg = load_config(args.config)
     setup_logging(cfg["logging"]["level"], cfg["logging"].get("log_file"))
@@ -437,8 +435,7 @@ def main() -> int:
             dl_res = run_dl_pipeline(cfg, split)
         except FileNotFoundError as e:
             logger.warning(
-                "[DL] events.csv 없어 DL 스킵: %s\n"
-                "  → 시뮬레이터 먼저 실행하거나 --skip_dl 사용",
+                "[DL] events.csv 없어 DL 스킵: %s\n" "  → 시뮬레이터 먼저 실행하거나 --skip_dl 사용",
                 e,
             )
         except ImportError as e:
