@@ -64,8 +64,8 @@ End-to-End 리텐션 시스템 구축:
 | 고객 행동 시뮬레이터 | 6 페르소나, 8 이벤트(page_view/search/add_to_cart/remove_from_cart/purchase/coupon_use/review/cs_contact), full: 20,000명/365일 · small: 5,000명/180일, T/C 각 10,000명, 이탈률 15~25% | ✅ 완료 | 형준 |
 | 시뮬레이터 검증 | 이탈률 범위(15~25%), T/C 비율(50:50), 8개 이벤트 타입, 행동 감쇠 비율(0.4~0.7), 코호트 멱함수 R²(>0.85) | ✅ 완료 | 형준 |
 | 코호트 분석 | M1/M3/M6/M12 리텐션 + Power-law 회귀 | ✅ 완료 | 형준 |
-| Docker Compose 인프라 | `docker compose up` 한 번에 7단계(simulator→validator→feature→train/uplift→optimize→dashboard) 순서 실행 | ✅ 완료 | 형준 |
-| 피처 엔지니어링 | 30개+ 피처: RFM(12개) + 행동변화율(7개) + 세션(6개) + 시퀀스(5개) + 시간대/여정, 결측·이상치 처리, feature_store.parquet | 🟡 코드 완료 | 현우 |
+| Docker Compose 인프라 | `docker compose up` 한 번으로 7개 서비스 자동 실행: simulator → feature/uplift 병렬 → train/optimize → dashboard | ✅ 완료 | 형준 |
+| 피처 엔지니어링 | 44개 피처: RFM(12개) + 행동변화율(7개) + 세션(6개) + 시퀀스(5개) + 시간대/여정, 결측·이상치 처리, feature_store.parquet | 🟡 코드 완료 | 현우 |
 | ML 이탈 예측 | XGBoost / LightGBM 2종, AUC-ROC 0.78+, 5-Fold CV, SMOTE, SHAP 상위 10개 피처, Optuna 하이퍼파라미터 튜닝 | 🚧 개발 중 | 한솔 |
 | DL 시퀀스 모델 | LSTM + 패딩/임베딩 + Early Stopping + ML/DL 앙상블, 동일 test set 비교 | 🚧 개발 중 | 한솔 |
 | Uplift Modeling | T-Learner / X-Learner 2종, Qini Curve, 4분면(Persuadables / Sure Things / Lost Causes / Sleeping Dogs) | ✅ 완료 | 한나 |
@@ -212,7 +212,7 @@ customer-churn-retention-system/
 │   └── dashboard/
 │       └── app.py                 # 🚧 Streamlit 대시보드
 ├── docs/
-│   ├── feature_dictionary.md      # 피처 정의서 (30개+)
+│   ├── feature_dictionary.md      # 피처 정의서 (44개)
 │   ├── uplift_analysis.md         # Uplift 분석 결과
 │   ├── retention_strategy.md      # 6세그먼트 리텐션 전략
 │   ├── ab_test_report.md          # Power 분석 + p-value 검정 결과
@@ -252,8 +252,7 @@ docker compose up --build
 
 대시보드: http://localhost:8501
 
-> `docker compose up` 한 번으로 7개 서비스가 의존 순서대로 자동 실행됩니다.
-> 대시보드는 train + optimize 완료 후 자동으로 시작됩니다.
+> `docker compose up` 한 번으로 7개 서비스가 자동 실행됩니다 — simulator 완료 후 feature/uplift 병렬 시작, train+optimize 완료 후 dashboard 시작.
 
 ### 방법 2: 로컬 개발
 
@@ -413,19 +412,38 @@ python src/main.py --mode simulate --sim-mode full
 ```text
 [simulator] python src/main.py --mode simulate
     │
-    ├──► [validator] python src/data/validate_simulator.py   (병렬)
+    ├──► [validator] python src/data/validate_simulator.py
     │        검증: 이탈률 15~25% / T-C 50:50 / 8개 이벤트 타입
     │
-    └──► [feature]  python src/main.py --mode feature
-             │
-             ▼  data/processed/feature_store.parquet
-         [train]   python src/main.py --mode train ─────────────┐
-                                                                 ▼
-         [uplift]  python src/main.py --mode uplift           [dashboard]
-             │     results/uplift_segments.csv                   :8501
-             ▼
-         [optimize] python src/main.py --mode optimize ──────────┘
-                    results/optimization_result.csv
+    ├──► [feature]   python src/main.py --mode feature         (병렬)
+    │        │  data/processed/feature_store.parquet
+    │        ▼
+    │    [train]     python src/main.py --mode train ──────────┐
+    │                                                          ▼
+    └──► [uplift]    python src/main.py --mode uplift   (병렬) [dashboard]
+             │  results/uplift_segments.csv                    :8501
+             ▼                                                 ▲
+         [optimize]  python src/main.py --mode optimize ───────┘
+                     results/optimization_result.csv
+```
+
+```mermaid
+flowchart LR
+    SIM["simulator"]
+    VAL["validator"]
+    FEAT["feature"]
+    UPLIFT["uplift"]
+    TRAIN["train"]
+    OPT["optimize"]
+    DASH["dashboard\n:8501"]
+
+    SIM --> VAL
+    SIM --> FEAT
+    SIM --> UPLIFT
+    FEAT --> TRAIN
+    UPLIFT --> OPT
+    TRAIN --> DASH
+    OPT --> DASH
 ```
 
 ### 데이터 흐름 (파일 기준)
@@ -457,7 +475,7 @@ python src/main.py --mode simulate --sim-mode full
 
 | 경로 | 설명 | 상태 |
 |------|------|------|
-| `docs/feature_dictionary.md` | 피처 정의서 (30개+ 피처 명세) | ✅ |
+| `docs/feature_dictionary.md` | 피처 정의서 (44개 피처 명세) | ✅ |
 | `docs/model_report.md` | ML/DL/앙상블 비교 리포트 | 🚧 |
 | `docs/retention_strategy.md` | 6세그먼트 리텐션 전략 + 목적함수 수식 | ✅ |
 | `docs/ab_test_report.md` | Power 분석 + p-value 검정 결과 | ✅ |
@@ -473,7 +491,7 @@ python src/main.py --mode simulate --sim-mode full
 |------|------|------|
 | `data/raw/customers.csv` | 고객 마스터 (6 페르소나 / 처치여부 / 이탈여부) | ✅ |
 | `data/raw/events.csv` | 이벤트 로그 (8 이벤트 타입 / 날짜 / 주문금액) | ✅ |
-| `data/processed/feature_store.parquet` | 통합 피처 스토어 (30개+ 피처) | 🟡 |
+| `data/processed/feature_store.parquet` | 통합 피처 스토어 (44개 피처) | 🟡 |
 | `results/feature_validation_report.json` | 피처 파이프라인 검증 리포트 | ✅ |
 | `models/xgboost_v1.joblib` | 학습된 XGBoost 모델 | 🚧 |
 | `models/lightgbm_v1.joblib` | 학습된 LightGBM 모델 | 🚧 |
