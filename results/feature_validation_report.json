@@ -1,6 +1,6 @@
 {
   "summary": {
-    "n_customers": 5000,
+    "n_customers": 20000,
     "n_features": 44,
     "n_fail": 0,
     "n_warn": 0

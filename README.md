@@ -64,6 +64,7 @@ End-to-End 리텐션 시스템 구축:
 | 고객 행동 시뮬레이터 | 6 페르소나, 8 이벤트(page_view/search/add_to_cart/remove_from_cart/purchase/coupon_use/review/cs_contact), full: 20,000명/365일 · small: 5,000명/180일, T/C 각 10,000명, 이탈률 15~25% | ✅ 완료 | 형준 |
 | 시뮬레이터 검증 | 이탈률 범위(15~25%), T/C 비율(50:50), 8개 이벤트 타입, 행동 감쇠 비율(0.4~0.7), 코호트 멱함수 R²(>0.85) | ✅ 완료 | 형준 |
 | 코호트 분석 | M1/M3/M6/M12 리텐션 + Power-law 회귀 | ✅ 완료 | 형준 |
+| 고객 여정 퍼널 분석 | 가입→첫구매→재구매→충성→이탈 5단계 퍼널, 코호트별 전환율 분석, `src/analysis/cohort.py` `build_journey_funnel()` | ✅ 완료 | 현우 |
 | Docker Compose 인프라 | `docker compose up` 한 번으로 7개 서비스 자동 실행: simulator → feature/uplift 병렬 → train/optimize → dashboard | ✅ 완료 | 형준 |
 | 피처 엔지니어링 | 44개 피처: RFM(12개) + 행동변화율(7개) + 세션(6개) + 시퀀스(5개) + 시간대/여정, 결측·이상치 처리, feature_store.parquet | 🟡 코드 완료 | 현우 |
 | ML 이탈 예측 | XGBoost / LightGBM 2종, AUC-ROC 0.78+, 5-Fold CV, SMOTE, SHAP 상위 10개 피처, Optuna 하이퍼파라미터 튜닝 | 🚧 개발 중 | 한솔 |
@@ -86,7 +87,9 @@ flowchart TB
         SIM["고객 행동 시뮬레이터\n6 페르소나 / 8 이벤트\nfull: 20,000명/365일\nsmall: 5,000명/180일"]
         VAL["시뮬레이터 검증\n이탈률 / 처치효과 / 이벤트 타입"]
         RAW[("data/raw/\ncustomers.csv\nevents.csv")]
+        COHORT["코호트/여정 분석\nM1/M3/M6/M12 리텐션 + Power-law 회귀\n가입→첫구매→재구매→충성→이탈\nbuild_journey_funnel()"]
         SIM --> RAW --> VAL
+        RAW --> COHORT
     end
 
     subgraph Feature["피처 엔지니어링"]
@@ -137,7 +140,7 @@ flowchart TB
     classDef done fill:#d4edda,stroke:#28a745
     classDef wip fill:#fff3cd,stroke:#ffc107
     classDef code fill:#cce5ff,stroke:#004085
-    class SIM,VAL,RAW,STORE done
+    class SIM,VAL,RAW,STORE,COHORT done
     class RFM,SES,BEH,SEQ code
     class ML,DL,ENS,SHAP,UPLIFT,CLV,SEG,OPT,AB,DASH,MON,REPORT wip
 ```
@@ -507,6 +510,9 @@ flowchart LR
 | `results/budget_allocation.png` | 예산 배분 시각화 (3개 차트) | ✅ |
 | `results/ab_test_result.json` | A/B 테스트 검정 결과 | ✅ |
 | `results/v2_validation_report.md` | 시뮬레이터 v2 검증 리포트 | ✅ |
+| `results/churn_pattern_top5.csv` | 이탈 패턴 Top5 전환 경로 | ✅ |
+| `results/churn_pattern_summary.csv` | 이탈 패턴 요약 통계 | ✅ |
+| `results/segment_bubble.png` | 세그먼트 버블 차트 (Uplift × CLV) | ✅ |
 | `results/monitoring_report.json` | 모델 드리프트 모니터링 리포트 | 🚧 |
 | `docs/feature_dictionary.md` | 피처 정의서 | ✅ |
 | `docs/uplift_analysis.md` | Uplift 분석 해설 | ✅ |
