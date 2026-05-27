@@ -6,6 +6,9 @@ Run with:
 import pandas as pd
 import streamlit as st
 from pathlib import Path
+import json
+import plotly.express as px
+import plotly.graph_objects as go
 
 # src 모듈 임포트 (데이터 로직 분리 원칙 준수)
 try:
@@ -20,7 +23,6 @@ except ImportError:
     from src.uplift.segmentation import compute_segment_stats
 
 st.set_page_config(page_title="Customer Churn & Retention Optimization Dashboard", layout="wide")
-st.title("Customer Churn & Retention Optimization Dashboard")
 
 # ── 데이터 로드 함수 ────────────────────────────────────────────────────────
 RESULTS_DIR = Path("results")
@@ -35,7 +37,6 @@ def load_dashboard_data():
     if cohort_path.exists():
         cohort_df = pd.read_csv(cohort_path)
     else:
-        # 파일이 없으면 직접 계산 (Fallback)
         try:
             customers, events = load_data(DATA_DIR)
             cohort_df = build_cohort_retention(customers, events)
@@ -47,7 +48,6 @@ def load_dashboard_data():
     if segment_path.exists():
         segments_df = pd.read_csv(segment_path)
     else:
-        # Fallback (현 시점에서는 빈 데이터프레임 혹은 placeholder)
         segments_df = pd.DataFrame()
 
     # 3. 예산 최적화 결과
@@ -60,7 +60,6 @@ def load_dashboard_data():
     # 4. A/B 테스트 결과
     ab_path = RESULTS_DIR / "ab_test_result.json"
     if ab_path.exists():
-        import json
         with open(ab_path, "r", encoding="utf-8") as f:
             ab_result = json.load(f)
     else:
@@ -69,163 +68,196 @@ def load_dashboard_data():
     # 5. 모델 요약 (AUC 등)
     model_path = RESULTS_DIR / "model_summary.json"
     if model_path.exists():
-        import json
         with open(model_path, "r", encoding="utf-8") as f:
             model_summary = json.load(f)
     else:
         model_summary = None
-
-    return cohort_df, segments_df, opt_df, ab_result, model_summary
-
-cohort_retention_df, segments_df, opt_df, ab_result, model_summary = load_dashboard_data()
-
-# ── 데이터 가공 ─────────────────────────────────────────────────────────────
-
-# Row 1 Col 1 : 이탈 위험 현황 데이터
-if not segments_df.empty:
-    total_customers = len(segments_df)
-    # churn_prob_control > 0.5 를 위험군으로 간주
-    customer_leave_at_risk = len(segments_df[segments_df["churn_prob_control"] > 0.5])
-    customer_leave_at_risk_percentage = customer_leave_at_risk / total_customers if total_customers > 0 else 0
-    # 실제 이탈로 예측된 수 (확률 합계 등)
-    predicted_churn = int(segments_df["churn_prob_control"].sum())
-    
-    # 모델 성능 지표 (model_summary.json 에서 가져오기)
-    if model_summary:
-        model_auc = model_summary.get("best_overall_test_auc", 0.825)
+        
+    # 6. 모니터링 리포트
+    monitoring_path = RESULTS_DIR / "monitoring_report.json"
+    if monitoring_path.exists():
+        with open(monitoring_path, "r", encoding="utf-8") as f:
+            monitoring_report = json.load(f)
     else:
-        model_auc = 0.825  # Fallback
+        monitoring_report = None
+
+    # 7. CLV 예측 데이터
+    clv_path = RESULTS_DIR / "clv_predictions.csv"
+    if clv_path.exists():
+        clv_df = pd.read_csv(clv_path)
+    else:
+        clv_df = pd.DataFrame()
+
+    return cohort_df, segments_df, opt_df, ab_result, model_summary, monitoring_report, clv_df
+
+# 데이터 로드 실행
+cohort_ret_df, segments_df, opt_df, ab_res, model_sum, monitor_rep, clv_df = load_dashboard_data()
+
+# ── 사이드바 ───────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.title("Settings")
+    if st.button("Refresh Data"):
+        st.cache_data.clear()
+        st.rerun()
+    st.divider()
+    st.info("이 대시보드는 이탈 위험 현황, 코호트 분석, Uplift 세그먼트, 예산 최적화 및 모델 모니터링 정보를 제공합니다.")
+
+# ── 메인 화면 (Tabs) ──────────────────────────────────────────────────────
+st.title("🚀 Churn & Retention Optimization")
+
+tabs = st.tabs(["📊 개요", "📅 코호트", "🎯 Uplift & CLV", "💰 예산 & 전략", "🔍 모니터링"])
+
+# ── Tab 1: 개요 ───────────────────────────────────────────────────────────
+with tabs[0]:
+    st.header("이탈 위험 현황")
     
-    # 이탈 확률 분포 데이터프레임 (차트용)
-    leave_risk_df = segments_df["churn_prob_control"].value_counts(bins=10).sort_index().reset_index()
-    leave_risk_df.columns = ["Churn Probability Range", "Count"]
-    leave_risk_df["Churn Probability Range"] = leave_risk_df["Churn Probability Range"].astype(str)
-else:
-    total_customers = 0
-    customer_leave_at_risk = 0
-    customer_leave_at_risk_percentage = 0
-    predicted_churn = 0
-    model_auc = 0.0
-    leave_risk_df = pd.DataFrame()
+    if not segments_df.empty:
+        total_cust = len(segments_df)
+        at_risk = len(segments_df[segments_df["churn_prob_control"] > 0.5])
+        predicted_churn = int(segments_df["churn_prob_control"].sum())
+        model_auc = model_sum.get("best_overall_test_auc", 0.825) if model_sum else 0.825
+        
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("전체 고객 수", f"{total_cust:,}")
+        col2.metric("위험군 고객 (>0.5)", f"{at_risk:,}", f"{at_risk/total_cust:.1%}", delta_color="inverse")
+        col3.metric("예상 이탈 수", f"{predicted_churn:,}")
+        col4.metric("모델 AUC-ROC", f"{model_auc:.3f}")
+        
+        st.divider()
+        
+        col_left, col_right = st.columns([2, 1])
+        with col_left:
+            st.subheader("이탈 확률 분포")
+            fig = px.histogram(segments_df, x="churn_prob_control", nbins=20, 
+                               labels={"churn_prob_control": "이탈 확률", "count": "고객 수"},
+                               color_discrete_sequence=["#EF553B"])
+            fig.update_layout(showlegend=False, height=400)
+            st.plotly_chart(fig, use_container_width=True)
+            
+        with col_right:
+            st.subheader("리텐션 우선순위 Top 10")
+            top_10 = segments_df.sort_values("priority_score", ascending=False).head(10).copy()
+            st.dataframe(top_10[["customer_id", "churn_prob_control", "priority_score"]].style.format({
+                "churn_prob_control": "{:.1%}",
+                "priority_score": "{:.2f}"
+            }), hide_index=True)
+    else:
+        st.warning("세그먼트 데이터가 없습니다. 분석 파이프라인을 먼저 실행해 주세요.")
 
-# Row 2 Col 1 : Uplift 세그먼트 분포 데이터
-if not segments_df.empty:
-    uplift_segment_df = compute_segment_stats(segments_df.rename(columns={"segment": "segment_6"}))
-    uplift_segment_df = uplift_segment_df[["segment_6", "n_customers", "ratio_pct", "avg_priority"]]
-else:
-    uplift_segment_df = pd.DataFrame()
+# ── Tab 2: 코호트 ───────────────────────────────────────────────────────────
+with tabs[1]:
+    st.header("코호트 리텐션 분석")
+    if not cohort_ret_df.empty:
+        st.subheader("가입월 기준 코호트 리텐션 히트맵")
+        pivot_retention = cohort_ret_df.pivot(index="cohort_month", columns="period", values="retention_rate")
+        st.dataframe(pivot_retention.style.format("{:.1%}").background_gradient(cmap="YlOrRd_r"), use_container_width=True)
+        
+        st.divider()
+        st.subheader("리텐션 곡선 (Retention Curve)")
+        avg_retention = cohort_ret_df.groupby("period")["retention_rate"].mean().reset_index()
+        fig_curve = px.line(avg_retention, x="period", y="retention_rate", markers=True,
+                            labels={"period": "경과 기간 (Month)", "retention_rate": "리텐션율"},
+                            title="전체 평균 리텐션 곡선")
+        fig_curve.update_yaxes(range=[0, 1])
+        st.plotly_chart(fig_curve, use_container_width=True)
+    else:
+        st.info("코호트 분석 데이터가 없습니다.")
 
-# Row 2 Col 2 : 예산 최적화 시뮬레이션 데이터
-if not opt_df.empty:
-    budget = int(opt_df["allocated_budget"].sum())
-    expected_customers_saved = len(opt_df)
-    # ROI 평균 혹은 기대 수익 합계 기반 계산
-    total_gain = opt_df["expected_gain"].sum()
-    expected_roi = (total_gain / budget * 100) if budget > 0 else 0
-else:
-    budget = 5000000
-    expected_customers_saved = 124
-    expected_roi = 24.5
+# ── Tab 3: Uplift & CLV ────────────────────────────────────────────────────
+with tabs[2]:
+    st.header("Uplift & CLV 분석")
+    col_u1, col_u2 = st.columns(2)
+    
+    with col_u1:
+        st.subheader("Uplift 4분면 세그먼트 분포")
+        if not segments_df.empty:
+            # 6세그먼트 데이터를 4분면으로 요약하거나 직접 표시
+            seg_stats = compute_segment_stats(segments_df.rename(columns={"segment": "segment_6"}))
+            fig_pie = px.pie(seg_stats, values="n_customers", names="segment_6", hole=0.4,
+                             title="고객 세그먼트 비중")
+            st.plotly_chart(fig_pie, use_container_width=True)
+        else:
+            st.info("데이터가 없습니다.")
+            
+    with col_u2:
+        st.subheader("CLV 분포")
+        if not clv_df.empty:
+            fig_clv = px.box(clv_df, y="predicted_clv", title="예상 CLV 분포")
+            st.plotly_chart(fig_clv, use_container_width=True)
+            
+            high_value_pct = clv_df["is_high_value"].mean()
+            st.metric("고가치 고객 비중 (Top 20%)", f"{high_value_pct:.1%}")
+        else:
+            st.info("CLV 예측 데이터가 없습니다.")
 
-# Row 3 : 리텐션 대상 고객 데이터
-if not segments_df.empty:
-    # 우선순위 점수 기준 상위 10명
-    top_10 = segments_df.sort_values("priority_score", ascending=False).head(10).copy()
-    top_10["Rank"] = range(1, 11)
-    retention_target_customer_df = top_10[[
-        "Rank", "customer_id", "churn_prob_control", "predicted_clv", "segment", "priority_score"
-    ]]
-    retention_target_customer_df.columns = ["Rank", "ID", "Churn Prob", "CLV", "Segment", "Priority Score"]
-else:
-    retention_target_customer_df = pd.DataFrame(columns=["Rank", "ID", "Churn Prob", "CLV", "Segment", "Priority Score"])
+# ── Tab 4: 예산 & 전략 ─────────────────────────────────────────────────────
+with tabs[3]:
+    st.header("예산 최적화 및 리텐션 전략")
+    
+    if not opt_df.empty:
+        total_budget = int(opt_df["allocated_budget"].sum())
+        total_saved = int(opt_df["expected_gain"].sum()) # 예시로 gain을 사용
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("총 배분 예산", f"₩{total_budget:,}")
+        c2.metric("예상 방어 고객 수", f"{len(opt_df):,}명")
+        c3.metric("예상 ROI", f"{(total_saved/total_budget*100):.1f}%" if total_budget > 0 else "0%")
+        
+        st.subheader("세그먼트별 예산 배분 상세")
+        st.dataframe(opt_df.style.format({
+            "allocated_budget": "₩{:,.0f}",
+            "expected_gain": "{:.2f}"
+        }), use_container_width=True)
+    else:
+        st.info("예산 최적화 결과가 없습니다.")
+        
+    st.divider()
+    st.subheader("A/B 테스트 결과 요약")
+    if ab_res:
+        overall = ab_res.get("overall_test", {})
+        st.write(f"**캠페인명:** Churn Prevention Overall")
+        st.write(f"**결과:** {'✅ 유의미한 효과 있음' if overall.get('z_test', {}).get('significant') else '❌ 유의미한 효과 없음'}")
+        
+        ab_col1, ab_col2, ab_col3 = st.columns(3)
+        ab_col1.metric("Control 이탈률", f"{overall.get('control_group', {}).get('churn_rate', 0):.1%}")
+        ab_col2.metric("Treatment 이탈률", f"{overall.get('treatment_group', {}).get('churn_rate', 0):.1%}")
+        ab_col3.metric("Lift (감소율)", f"{overall.get('relative_reduction_pct', 0):+.1f}%")
+    else:
+        st.info("A/B 테스트 결과가 없습니다.")
 
-# Row 4 : A/B 테스트 결과 요약
-if ab_result:
-    overall = ab_result.get("overall_test", {})
-    ab_test_summary_df = pd.DataFrame([
-        {
-            "Campaign": "Churn Prevention Overall",
-            "Control": f"{overall.get('control_group', {}).get('churn_rate', 0):.1%}",
-            "Treatment": f"{overall.get('treatment_group', {}).get('churn_rate', 0):.1%}",
-            "Lift": f"{overall.get('relative_reduction_pct', 0):+.1f}%",
-            "p-value": f"{overall.get('z_test', {}).get('p_value', 0):.4f}",
-            "Status": "Significant" if overall.get("z_test", {}).get("significant") else "Not Significant"
-        }
-    ])
-    # 세그먼트별 결과 추가
-    for seg in ab_result.get("segment_tests", []):
-        ab_test_summary_df = pd.concat([ab_test_summary_df, pd.DataFrame([{
-            "Campaign": f"Segment: {seg['segment']}",
-            "Control": f"{seg['churn_rate_ctrl']:.1%}",
-            "Treatment": f"{seg['churn_rate_trt']:.1%}",
-            "Lift": f"{seg['churn_reduction'] * 100:+.1f}%", # reduction이므로 양수면 긍정적이나 여기서는 감소율
-            "p-value": f"{seg['p_value']:.4f}" if not pd.isna(seg['p_value']) else "-",
-            "Status": "Significant" if seg['significant'] else "Not Significant"
-        }])], ignore_index=True)
-else:
-    ab_test_summary_df = pd.DataFrame([
-        {"Campaign": "Churn Prevention V1", "Control": "12.5%", "Treatment": "10.2%", "Lift": "+18.4%", "p-value": "0.042", "Status": "Significant"},
-        {"Campaign": "High Value Loyalty", "Control": "5.4%", "Treatment": "5.1%", "Lift": "+5.5%", "p-value": "0.210", "Status": "Not Significant"}
-    ])
-
-
-# Row 1
-row1 = st.container()
-col1_1, col1_2 = row1.columns(2)
-# Row 1 Col 1 : 이탈 위험 현황 패널
-leave_risk = col1_1.container(border=True)
-leave_risk.subheader("이탈 위험 현황")
-leave_risk_info_area = leave_risk.container()
-leave_risk_info_area.text(f"Total Customers: {total_customers:,}")
-leave_risk_info_area.text(f"At Risk (>0.5): {customer_leave_at_risk:,} ({customer_leave_at_risk_percentage:.1%})")
-leave_risk_info_area.text(f"Predicted Churn: {predicted_churn:,}")
-leave_risk_chart_area = leave_risk.container()
-leave_risk_chart_area.text(f"Model AUC: {model_auc:.3f}")
-leave_risk_chart_area.bar_chart(leave_risk_df.set_index("Churn Probability Range"))
-# Row 1 Col 2 : 코호트 리텐션 분석 패널
-cohort_retention = col1_2.container(border=True)
-cohort_retention.subheader("코호트 리텐션 분석")
-cohort_retention_chart_area = cohort_retention.container()
-cohort_retention_chart_area.text("Monthly Retention Heatmap")
-if not cohort_retention_df.empty:
-    pivot_retention = cohort_retention_df.pivot(
-        index="cohort_month", columns="period", values="retention_rate"
-    )
-    cohort_retention_chart_area.dataframe(pivot_retention.style.format("{:.1%}").background_gradient(cmap="YlOrRd_r"))
-else:
-    cohort_retention_chart_area.info("데이터가 없습니다.")
-
-# Row 2
-row2 = st.container()
-col2_1, col2_2 = row2.columns(2)
-# Row 2 Col 1 : Uplift 세그먼트 분포
-uplift_segment = col2_1.container(border=True)
-uplift_segment.subheader("Uplift 세그먼트 분포")
-uplift_segment_chart_area = uplift_segment.container()
-uplift_segment_chart_area.dataframe(uplift_segment_df.style.format({"ratio_pct": "{:.1f}%", "avg_priority": "{:.2f}"}), use_container_width=True)
-# Row 2 Col 2 : 예산 최적화 시뮬레이션
-budget_optimization = col2_2.container(border=True)
-budget_optimization.subheader("예산 최적화 시뮬레이션")
-budget_optimization_info_area = budget_optimization.container()
-budget_optimization_info_area.text(f"Budget: [{budget:,}] KRW")
-budget_optimization_info_area.write("")
-budget_optimization_info_area.text(f"Expected Customers Saved: {expected_customers_saved:,}")
-budget_optimization_info_area.text(f"Expected ROI: {expected_roi:.1f}%")
-
-# Row 3
-retention_target_customer = st.container(border=True)
-retention_target_customer.subheader("리텐션 대상 고객 Top 10 - 우선순위순")
-retention_target_customer.dataframe(
-    retention_target_customer_df.style.format({
-        "Churn Prob": "{:.1%}",
-        "CLV": "{:,.0f} KRW",
-        "Priority Score": "{:.2f}"
-    }),
-    use_container_width=True,
-    hide_index=True
-)
-
-# Row 4
-ab_test_summary = st.container(border=True)
-ab_test_summary.subheader("A/B 테스트 결과 요약")
-ab_test_summary.table(ab_test_summary_df)
+# ── Tab 5: 모니터링 ────────────────────────────────────────────────────────
+with tabs[4]:
+    st.header("데이터 및 모델 모니터링")
+    
+    if monitor_rep:
+        st.subheader("Data Drift 탐지 결과 (PSI / KS-test)")
+        
+        metrics = monitor_rep.get("metrics", {})
+        metrics_df = pd.DataFrame.from_dict(metrics, orient='index').reset_index()
+        metrics_df.columns = ["Feature", "PSI", "KS Statistic", "KS p-value"]
+        
+        # PSI 기준 컬러링
+        def color_psi(val):
+            if val > 0.2: return 'background-color: #ff4b4b; color: white' # High drift
+            if val > 0.1: return 'background-color: #ffa500' # Warning
+            return ''
+            
+        st.dataframe(metrics_df.style.applymap(color_psi, subset=['PSI']).format({
+            "PSI": "{:.4f}",
+            "KS Statistic": "{:.4f}",
+            "KS p-value": "{:.4f}"
+        }), use_container_width=True)
+        
+        st.divider()
+        st.subheader("Alerts")
+        alerts = monitor_rep.get("alerts", [])
+        if alerts:
+            for alert in alerts:
+                severity = "🚨 High" if alert['type'] == 'PSI' and alert['value'] > 0.2 else "⚠️ Warning"
+                st.error(f"**[{severity}] {alert['feature']}**: {alert['message']}")
+        else:
+            st.success("현재 탐지된 드리프트나 성능 저하 이슈가 없습니다.")
+            
+        st.caption(f"Last updated: {monitor_rep.get('timestamp')}")
+    else:
+        st.info("모니터링 리포트가 없습니다. `src/monitoring` 모듈을 실행해 주세요.")
