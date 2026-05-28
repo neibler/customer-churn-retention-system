@@ -24,13 +24,6 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = PROJECT_ROOT / "src"
 
-# 두 실행 방식을 모두 지원:
-#   - python src/main.py        → src/ 가 자동 추가됨 + 아래서 PROJECT_ROOT 보강
-#   - python -m src.main        → PROJECT_ROOT 가 자동 추가됨 + 아래서 src/ 보강
-for _p in (str(PROJECT_ROOT), str(SRC_DIR)):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
 load_dotenv(PROJECT_ROOT / ".env")
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "simulator_config.yaml"
@@ -150,4 +143,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # sys.path 조작 로직을 이 위치로 이동시켜 직접 실행될 때만 작동하게 합니다.
+    for _p in (str(PROJECT_ROOT), str(SRC_DIR)):
+        if _p not in sys.path:
+            sys.path.insert(0, _p)
+
     main()
