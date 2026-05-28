@@ -16,11 +16,14 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+SRC_DIR = PROJECT_ROOT / "src"
+
 load_dotenv(PROJECT_ROOT / ".env")
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "simulator_config.yaml"
@@ -67,12 +70,14 @@ def run_train() -> None:
         run_feature()
 
     from main_train import main as _main_train
+
     _main_train()
 
 
 def run_uplift() -> None:
     """Run uplift modeling."""
     from models.uplift import main as _main_uplift
+
     _main_uplift()
 
 
@@ -98,9 +103,7 @@ def run_optimize(budget: float | None) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Customer churn retention system entrypoint"
-    )
+    parser = argparse.ArgumentParser(description="Customer churn retention system entrypoint")
     parser.add_argument(
         "--mode",
         choices=["simulate", "feature", "train", "uplift", "optimize"],
@@ -140,4 +143,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # sys.path 조작 로직을 이 위치로 이동시켜 직접 실행될 때만 작동하게 합니다.
+    for _p in (str(PROJECT_ROOT), str(SRC_DIR)):
+        if _p not in sys.path:
+            sys.path.insert(0, _p)
+
     main()
