@@ -34,6 +34,8 @@ class DriftDetector:
 
         # Binning 범위를 expected 기준으로 설정
         _, bin_edges = np.histogram(expected, bins=buckets)
+        bin_edges[0] = -np.inf
+        bin_edges[-1] = np.inf
         
         expected_probs = get_probs(expected, bin_edges)
         actual_probs = get_probs(actual, bin_edges)
@@ -53,6 +55,12 @@ class DriftDetector:
         """
         지정된 피처들에 대해 모니터링 수행
         """
+        self.report = {
+            "timestamp": datetime.now().isoformat(),
+            "metrics": {},
+            "alerts": []
+        }
+
         for col in feature_cols:
             if col not in reference_df.columns or col not in current_df.columns:
                 continue

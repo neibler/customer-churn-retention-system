@@ -40,7 +40,7 @@ def load_dashboard_data():
         try:
             customers, events = load_data(DATA_DIR)
             cohort_df = build_cohort_retention(customers, events)
-        except Exception:
+        except (FileNotFoundError, pd.errors.EmptyDataError):
             cohort_df = pd.DataFrame()
 
     # 2. 세그먼트 및 우선순위 데이터
@@ -420,7 +420,7 @@ elif st.session_state.menu == "Budget":
     st.subheader("A/B 테스트 결과 요약")
     if ab_res:
         overall = ab_res.get("overall_test", {})
-        st.write(f"**캠페인명:** Churn Prevention Overall")
+        st.write("**캠페인명:** Churn Prevention Overall")
         st.write(f"**결과:** {'✅ 유의미한 효과 있음' if overall.get('z_test', {}).get('significant') else '❌ 유의미한 효과 없음'}")
         
         ab_col1, ab_col2, ab_col3 = st.columns(3)
@@ -437,28 +437,35 @@ elif st.session_state.menu == "Monitoring":
         st.subheader("Data Drift 탐지 결과 (PSI / KS-test)")
         
         metrics = monitor_rep.get("metrics", {})
-        metrics_df = pd.DataFrame.from_dict(metrics, orient='index').reset_index()
-        metrics_df.columns = ["Feature", "PSI", "KS Statistic", "KS p-value"]
-        
-        # PSI 기준 컬러링
-        def color_psi(val):
-            if val > 0.2: return 'background-color: #ff4b4b; color: white'
-            if val > 0.1: return 'background-color: #ffa500; color: black'
-            return ''
+        if metrics:
+            metrics_df = pd.DataFrame.from_dict(metrics, orient='index').reset_index()
+            metrics_df.columns = ["Feature", "PSI", "KS Statistic", "KS p-value"]
             
-        st.dataframe(metrics_df.style.applymap(color_psi, subset=['PSI']).format({
-            "PSI": "{:.4f}",
-            "KS Statistic": "{:.4f}",
-            "KS p-value": "{:.4f}"
-        }), use_container_width=True)
+            # PSI 기준 컬러링
+            def color_psi(val):
+                if val > 0.2:
+                    return "background-color: `#ff4b4b`; color: white"  # High drift
+                if val > 0.1:
+                    return "background-color: `#ffa500`"  # Warning
+                return ""
+                
+            st.dataframe(metrics_df.style.applymap(color_psi, subset=['PSI']).format({
+                "PSI": "{:.4f}",
+                "KS Statistic": "{:.4f}",
+                "KS p-value": "{:.4f}"
+            }), use_container_width=True)
+        else:
+            st.warning("탐지된 지표(Metrics) 데이터가 비어 있습니다.")
         
         st.divider()
         st.subheader("Alerts History")
         alerts = monitor_rep.get("alerts", [])
         if alerts:
             for alert in alerts:
-                severity = "🚨 High" if alert['type'] == 'PSI' and alert['value'] > 0.2 else "⚠️ Warning"
-                st.error(f"**[{severity}] {alert['feature']}**: {alert['message']}")
+                is_high = alert["type"] == "PSI" and alert["value"] > 0.2
+                severity = "🚨 High" if is_high else "⚠️ Warning"
+                render = st.error if is_high else st.warning
+                render(f"**[{severity}] {alert['feature']}**: {alert['message']}")
         else:
             st.success("현재 탐지된 드리프트나 성능 저하 이슈가 없습니다.")
             
