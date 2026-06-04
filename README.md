@@ -66,9 +66,9 @@ End-to-End 리텐션 시스템 구축:
 | 코호트 분석 | M1/M3/M6/M12 리텐션 + Power-law 회귀 | ✅ 완료 | 형준 |
 | 고객 여정 퍼널 분석 | 가입→첫구매→재구매→충성→이탈 5단계 퍼널, 코호트별 전환율 분석, `src/analysis/cohort.py` `build_journey_funnel()` | ✅ 완료 | 현우 |
 | Docker Compose 인프라 | `docker compose up` 한 번으로 7개 서비스 자동 실행: simulator → feature/uplift 병렬 → train/optimize → dashboard | ✅ 완료 | 형준 |
-| 피처 엔지니어링 | 44개 피처: RFM(12개) + 행동변화율(7개) + 세션(6개) + 시퀀스(5개) + 시간대/여정, 결측·이상치 처리, feature_store.parquet | 🟡 코드 완료 | 현우 |
-| ML 이탈 예측 | XGBoost / LightGBM 2종, AUC-ROC 0.78+, 5-Fold CV, SMOTE, SHAP 상위 10개 피처, Optuna 하이퍼파라미터 튜닝 | 🚧 개발 중 | 한솔 |
-| DL 시퀀스 모델 | LSTM + 패딩/임베딩 + Early Stopping + ML/DL 앙상블, 동일 test set 비교 | 🚧 개발 중 | 한솔 |
+| 피처 엔지니어링 | 44개 피처: RFM(12개) + 행동변화율(7개) + 세션(6개) + 시퀀스(5개) + 시간대/여정, 결측·이상치 처리, feature_store.parquet | ✅ 완료 | 현우 |
+| ML 이탈 예측 | XGBoost / LightGBM 2종, AUC-ROC 0.78+, 5-Fold CV, SMOTE, SHAP 상위 10개 피처, Optuna 하이퍼파라미터 튜닝 | ✅ 완료 | 한솔 |
+| DL 시퀀스 모델 | LSTM + 패딩/임베딩 + Early Stopping + ML/DL 앙상블, 동일 test set 비교 | ✅ 완료 | 한솔 |
 | Uplift Modeling | T-Learner / X-Learner 2종, Qini Curve, 4분면(Persuadables / Sure Things / Lost Causes / Sleeping Dogs) | ✅ 완료 | 한나 |
 | CLV 예측 | BG/NBD + Gamma-Gamma, 12개월 기준, 상위 20% 고가치 고객 식별 | ✅ 완료 | 한나 |
 | 6+ 세그먼테이션 | 이탈확률 × Uplift × CLV 조합, priority score 산출 | ✅ 완료 | 한나 |
@@ -319,7 +319,7 @@ python src/main.py --mode feature
 | 시퀀스/여정 | 5개+ | seq_entropy, journey_stage_id, behavior_cluster_id |
 | 시간대 | 7개 | weekend_purchase_ratio, month_end_activity_ratio 등 |
 
-### 3) 이탈 예측 모델 학습 🚧 개발 중
+### 3) 이탈 예측 모델 학습 ✅ 완료
 
 ```bash
 python src/main.py --mode train
@@ -327,7 +327,7 @@ python src/main.py --mode train
 
 > feature_store.parquet이 없으면 자동으로 --mode feature를 먼저 실행합니다.
 
-**예정 산출물:** `models/xgboost_v1.joblib`, `models/lightgbm_v1.joblib`, `models/lstm_v1.pt`, `results/shap_summary.png`, `results/model_summary.json`
+**산출물:** `models/xgboost_v1.joblib`, `models/lightgbm_v1.joblib`, `models/lstm_v1.pt`, `results/shap_summary.png`, `results/model_summary.json`
 
 | 요구사항 | 목표값 |
 |---------|-------|
@@ -486,7 +486,7 @@ flowchart LR
 | `results/clv_predictions.csv` | 고객별 CLV 예측값 (12개월, 상위 20%) | ✅ |
 | `results/segments_6plus.csv` | 6+ 세그먼트 최종 분류 + priority score | ✅ |
 | `results/monitoring_report.json` | PSI / KS-test 결과 + 임계치 | 🚧 |
-| `results/shap_summary.png` | SHAP 상위 10개 피처 중요도 | 🚧 |
+| `results/shap_summary.png` | SHAP 상위 10개 피처 중요도 | ✅ |
 
 ### 전체 산출물
 
@@ -494,12 +494,12 @@ flowchart LR
 |------|------|------|
 | `data/raw/customers.csv` | 고객 마스터 (6 페르소나 / 처치여부 / 이탈여부) | ✅ |
 | `data/raw/events.csv` | 이벤트 로그 (8 이벤트 타입 / 날짜 / 주문금액) | ✅ |
-| `data/processed/feature_store.parquet` | 통합 피처 스토어 (44개 피처) | 🟡 |
+| `data/processed/feature_store.parquet` | 통합 피처 스토어 (44개 피처) | ✅ |
 | `results/feature_validation_report.json` | 피처 파이프라인 검증 리포트 | ✅ |
-| `models/xgboost_v1.joblib` | 학습된 XGBoost 모델 | 🚧 |
-| `models/lightgbm_v1.joblib` | 학습된 LightGBM 모델 | 🚧 |
-| `models/lstm_v1.pt` | 학습된 LSTM 모델 | 🚧 |
-| `results/shap_summary.png` | SHAP 상위 10개 피처 중요도 | 🚧 |
+| `models/xgboost_v1.joblib` | 학습된 XGBoost 모델 | ✅ |
+| `models/lightgbm_v1.joblib` | 학습된 LightGBM 모델 | ✅ |
+| `models/lstm_v1.pt` | 학습된 LSTM 모델 | ✅ |
+| `results/shap_summary.png` | SHAP 상위 10개 피처 중요도 | ✅ |
 | `results/cohort_retention.png` | 코호트 리텐션 곡선 (M1~M12) | ✅ |
 | `results/uplift_segments.csv` | Uplift 세그먼트 분류 결과 (4분면) | ✅ |
 | `results/clv_predictions.csv` | 고객별 CLV 예측값 | ✅ |
@@ -566,4 +566,4 @@ flowchart LR
 
 ---
 
-**Last Updated:** 2026-05-27
+**Last Updated:** 2026-06-04
