@@ -3,7 +3,11 @@ simulation:
   start_date: '2024-01-01'
   full:
     n_customers: 20000
-    n_days: 365
+    # 코호트 M12 리텐션 관측을 위해 18개월(550일)로 확장.
+    # (가입은 [0, n_days/2] 균등분포 → 가장 이른 코호트가 가입 후 12개월을
+    #  관측하려면 전체 기간이 12개월보다 충분히 길어야 한다. 550일이면
+    #  2024-01~2024-07 가입 코호트가 M12까지 관측된다.)
+    n_days: 550
   small:
     n_customers: 5000
     n_days: 180
@@ -16,8 +20,13 @@ treatment_control:
 churn_definition:
   no_purchase_days: 45
   no_visit_days: 90
+  # 목표 이탈률 밴드는 '관측 기간 길이'에 종속적이다(기간↑ → 누적 이탈↑).
+  # full 모드를 18개월(550일)로 확장하면서 누적 이탈률이 ~31%로 상승하므로,
+  # 12개월 기준이던 밴드(0.15~0.25)를 18개월 기준으로 넓힌다.
+  # 페르소나 base_churn_prob(행동 파라미터)는 변경하지 않아 Treatment/Control
+  # 업리프트 구조에는 영향이 없다.
   target_churn_rate_min: 0.15
-  target_churn_rate_max: 0.25
+  target_churn_rate_max: 0.35
 
 personas:
   vip_loyal:
