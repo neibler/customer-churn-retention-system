@@ -128,7 +128,7 @@ def make_point_in_time_labels(
     signed_up_before_T = base["signup_date"] < cutoff
     no_purchase_before_T = base["last_purchase_pre_cutoff"].isna()
     already_churned_at_T = (
-        base["days_since_last_purchase_at_cutoff"] > no_purchase_days
+        base["days_since_last_purchase_at_cutoff"] >= no_purchase_days
     )
 
     base["eligible"] = (
