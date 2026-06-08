@@ -291,3 +291,33 @@ python src/features/store.py
 
 검증 리포트: `results/feature_validation_report.json` (summary + issue list).
 
+
+### 10.4 시점 기반 라벨 & 예측 적격 (누설 방지) — `labeling.py`
+
+데이터 누설(전역 종료일 기준 피처 + 전체기간 `churned` 라벨)을 제거하기 위해
+예측 시점 **T(cutoff)** 를 도입한다. 피처는 `event_date < T` 로만 계산하고,
+라벨은 `[T, T+window)` 구매 여부로 직접 재계산한다. `scheduled_churn_day` 는
+누설 컬럼이라 사용하지 않는다.
+
+| 컬럼 | 타입 | 정의 |
+|---|---|---|
+| `churn_label` | float(0/1) | **모델 타깃.** eligible 고객이 `[T, T+window_days)` 동안 미구매면 1(이탈), 구매 있으면 0. ineligible 은 NaN |
+| `eligible` | bool | 예측 대상 여부. T 시점에 활성(직전 구매가 `no_purchase_days` 이내)인 고객만 True. T 이전 이미 이탈/미구매 고객은 False |
+
+기본값: `cutoff=2024-10-01`, `label_window_days=45`, `no_purchase_days=45`
+(이탈 정의 "45일 미구매"와 1:1 대응). 메타(`feature_store_meta.json`)에
+`cutoff_date / label_window_days / n_eligible / point_in_time_churn_rate` 기록.
+
+**모델링 팀 사용법:** 타깃은 `churn_label`, 학습은 `eligible==True` 행만,
+피처 행렬에서 `churned`·`eligible` 은 제외한다.
+
+`validate_pipeline.py` 추가 체크:
+
+| 체크 | 심각도 | 검증 내용 |
+|---|---|---|
+| `pit.columns` | fail | `eligible`/`churn_label` 존재 |
+| `pit.eligible_count` | fail | 예측 적격 고객 > 0 |
+| `pit.label_nan` | fail | eligible 행에 라벨 결측 없음 |
+| `pit.label_binary` | fail | `churn_label` ∈ {0,1} |
+| `pit.churn_rate` | warn | 시점 기반 이탈률 ∈ (0,1) |
+| `leakage.recency_corr` | warn | recency 류 피처 ↔ `churn_label` 상관 < 0.9 (시점 누설 재발 탐지) |
