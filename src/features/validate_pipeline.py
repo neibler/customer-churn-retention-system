@@ -55,7 +55,11 @@ except ImportError:  # pragma: no cover
 
 MASTER_COLS: tuple[str, ...] = (
     "customer_id", "persona", "is_treatment", "churned",
+    # 시점 기반 타깃/적격 (피처가 아님 — 결측·이상치·피처 검사에서 제외)
+    "churn_label", "eligible",
 )
+# 시점 기반 라벨에서, recency 류 피처와 타깃의 상관이 이 값을 넘으면 누설 의심.
+LEAKAGE_CORR_THRESHOLD: float = 0.9
 MIN_FEATURE_COUNT: int = 40  # feature_dictionary.md 기준 44개. 마진 4.
 DEFAULT_NAN_RATE_THRESHOLD: float = 0.01
 
@@ -199,6 +203,78 @@ def check_label_leakage_schema(fs: pd.DataFrame) -> list[dict]:
     return issues
 
 
+def check_point_in_time_label(fs: pd.DataFrame) -> list[dict]:
+    """시점 기반 라벨 무결성 + recency 누설 가드.
+
+    - eligible / churn_label 컬럼 존재
+    - eligible 고객 수 > 0
+    - eligible 행의 churn_label 은 결측 없이 {0,1}
+    - 시점 기반 이탈률이 (0,1) 사이의 합리적 범위
+    - recency 류 피처와 churn_label 상관의 절댓값이 임계 미만
+      (전역 종료일 기준이면 recency==label 로 묶여 1.0 에 근접 → 누설 재발 탐지)
+    """
+    issues: list[dict] = []
+
+    if "eligible" not in fs.columns or "churn_label" not in fs.columns:
+        issues.append({
+            "severity": "fail", "check": "pit.columns",
+            "msg": "point-in-time 컬럼(eligible/churn_label)이 없습니다 — "
+                   "build_feature_store 가 시점 기반인지 확인하세요."
+        })
+        return issues
+
+    elig = fs["eligible"].fillna(False).astype(bool)
+    n_elig = int(elig.sum())
+    if n_elig == 0:
+        issues.append({
+            "severity": "fail", "check": "pit.eligible_count",
+            "msg": "예측 적격(eligible) 고객이 0명입니다."
+        })
+        return issues
+
+    label_elig = fs.loc[elig, "churn_label"]
+    if label_elig.isna().any():
+        issues.append({
+            "severity": "fail", "check": "pit.label_nan",
+            "msg": f"eligible 행에 churn_label 결측 {int(label_elig.isna().sum())}건"
+        })
+    bad_values = set(label_elig.dropna().unique()) - {0.0, 1.0}
+    if bad_values:
+        issues.append({
+            "severity": "fail", "check": "pit.label_binary",
+            "msg": f"churn_label 에 0/1 이외 값: {sorted(bad_values)[:5]}"
+        })
+
+    churn_rate = float(label_elig.mean())
+    if not (0.0 < churn_rate < 1.0):
+        issues.append({
+            "severity": "warn", "check": "pit.churn_rate",
+            "msg": f"시점 기반 이탈률이 비정상: {churn_rate:.4f}"
+        })
+
+    # recency 류 누설 가드
+    recency_like = [
+        c for c in fs.columns
+        if c not in MASTER_COLS and ("recency" in c.lower() or "days_since_last_purchase" in c.lower())
+    ]
+    label_num = label_elig.astype(float)
+    for col in recency_like:
+        if not pd.api.types.is_numeric_dtype(fs[col]):
+            continue
+        sub = fs.loc[elig, col]
+        if sub.nunique(dropna=True) <= 1:
+            continue
+        corr = float(np.corrcoef(sub.fillna(sub.median()), label_num)[0, 1])
+        if abs(corr) >= LEAKAGE_CORR_THRESHOLD:
+            issues.append({
+                "severity": "warn", "check": "leakage.recency_corr",
+                "msg": f"'{col}' 와 churn_label 상관 {corr:.3f} "
+                       f"(≥{LEAKAGE_CORR_THRESHOLD}) — 시점 누설 의심"
+            })
+
+    return issues
+
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
@@ -211,6 +287,7 @@ CHECKS = [
     ("nan_rate", check_nan_rate),
     ("rate_bounds", check_rate_bounds),
     ("leakage_schema", check_label_leakage_schema),
+    ("point_in_time_label", check_point_in_time_label),
 ]
 
 
@@ -244,6 +321,9 @@ def run_pipeline_validation(
     report_dir: str | Path = "results",
     nan_rate_threshold: float = DEFAULT_NAN_RATE_THRESHOLD,
     strict: bool = False,
+    cutoff: str | None = None,
+    label_window_days: int = 45,
+    no_purchase_days: int = 45,
 ) -> tuple[pd.DataFrame, list[dict], dict]:
     """Build feature store + validate + write report."""
     data_dir = Path(data_dir)
@@ -252,10 +332,14 @@ def run_pipeline_validation(
     report_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 70)
-    print("WBS 3.8 — Feature pipeline validation")
+    print("WBS 3.8 — Feature pipeline validation (point-in-time)")
     print("=" * 70)
 
-    fs = build_feature_store(data_dir=data_dir, output_dir=output_dir, save=True)
+    fs = build_feature_store(
+        data_dir=data_dir, output_dir=output_dir, save=True,
+        cutoff=cutoff, label_window_days=label_window_days,
+        no_purchase_days=no_purchase_days,
+    )
 
     customers_raw, _ = _load_raw(data_dir)
     issues, summary = validate(
@@ -304,6 +388,10 @@ def main() -> None:
                         default=DEFAULT_NAN_RATE_THRESHOLD)
     parser.add_argument("--strict", action="store_true",
                         help="exit nonzero on warnings as well")
+    parser.add_argument("--cutoff", default=None,
+                        help="예측 시점 T (YYYY-MM-DD). 미지정 시 자동 산정.")
+    parser.add_argument("--label-window-days", type=int, default=45)
+    parser.add_argument("--no-purchase-days", type=int, default=45)
     args = parser.parse_args()
 
     run_pipeline_validation(
@@ -312,6 +400,9 @@ def main() -> None:
         report_dir=args.report_dir,
         nan_rate_threshold=args.nan_rate_threshold,
         strict=args.strict,
+        cutoff=args.cutoff,
+        label_window_days=args.label_window_days,
+        no_purchase_days=args.no_purchase_days,
     )
 
 
