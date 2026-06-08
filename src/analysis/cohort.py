@@ -240,7 +240,7 @@ def build_milestone_table(
     milestone_df: pd.DataFrame,
     milestones: Sequence[int] = RETENTION_MILESTONES,
 ) -> pd.DataFrame:
-    """코호트 × 마일스톤(M1/M3/M6/M12) 와이드 수치표를 만든다.
+    """코호트 x 마일스톤(M1/M3/M6/M12) 와이드 수치표를 만든다.
 
     행: 코호트(가입월) + 마지막 'Overall(가중평균)' 행
     열: cohort_size, M{n}_retention, M{n}_churn  (n ∈ milestones)
