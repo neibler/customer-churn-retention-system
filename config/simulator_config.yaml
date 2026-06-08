@@ -3,11 +3,11 @@ simulation:
   start_date: '2024-01-01'
   full:
     n_customers: 20000
-    # 코호트 M12 리텐션 관측을 위해 18개월(550일)로 확장.
+    # 코호트 M12 리텐션 관측을 위해 15개월(450일)로 설정.
     # (가입은 [0, n_days/2] 균등분포 → 가장 이른 코호트가 가입 후 12개월을
-    #  관측하려면 전체 기간이 12개월보다 충분히 길어야 한다. 550일이면
-    #  2024-01~2024-07 가입 코호트가 M12까지 관측된다.)
-    n_days: 550
+    #  관측하려면 전체 기간이 12개월보다 충분히 길어야 한다. 450일이면
+    #  2024-01 등 초기 코호트가 M12까지 관측된다.)
+    n_days: 450
   small:
     n_customers: 5000
     n_days: 180
@@ -26,7 +26,7 @@ churn_definition:
   # 페르소나 base_churn_prob(행동 파라미터)는 변경하지 않아 Treatment/Control
   # 업리프트 구조에는 영향이 없다.
   target_churn_rate_min: 0.15
-  target_churn_rate_max: 0.35
+  target_churn_rate_max: 0.25
 
 personas:
   vip_loyal:
@@ -38,7 +38,7 @@ personas:
     purchase_cycle_std: 2.0
     avg_order_value: 150000
     avg_order_value_std: 40000
-    base_churn_prob: 0.013
+    base_churn_prob: 0.00884
     marketing_response:
       coupon: 0.05               # 전환 증가 확률
       push_notification: 0.03
@@ -62,7 +62,7 @@ personas:
     purchase_cycle_std: 4.0
     avg_order_value: 60000
     avg_order_value_std: 20000
-    base_churn_prob: 0.023
+    base_churn_prob: 0.01564
     marketing_response:
       coupon: 0.12
       push_notification: 0.08
@@ -86,7 +86,7 @@ personas:
     purchase_cycle_std: 7.0
     avg_order_value: 30000
     avg_order_value_std: 10000
-    base_churn_prob: 0.038
+    base_churn_prob: 0.02584
     marketing_response:
       coupon: 0.25
       push_notification: 0.05
@@ -110,7 +110,7 @@ personas:
     purchase_cycle_std: 15.0
     avg_order_value: 45000
     avg_order_value_std: 25000
-    base_churn_prob: 0.040
+    base_churn_prob: 0.0272
     marketing_response:
       coupon: 0.10
       push_notification: 0.12
@@ -134,7 +134,7 @@ personas:
     purchase_cycle_std: 20.0
     avg_order_value: 25000
     avg_order_value_std: 15000
-    base_churn_prob: 0.055
+    base_churn_prob: 0.0374
     marketing_response:
       coupon: 0.15
       push_notification: 0.08
@@ -158,7 +158,7 @@ personas:
     purchase_cycle_std: 10.0
     avg_order_value: 35000
     avg_order_value_std: 20000
-    base_churn_prob: 0.040
+    base_churn_prob: 0.0272
     marketing_response:
       coupon: 0.20
       push_notification: 0.18
@@ -200,7 +200,7 @@ marketing:
 # 행동 변화 모델: 시간 경과에 따른 이탈 확률 drift
 temporal_drift:
   churn_prob_increase_per_month: 0.0008  # 월별 기본 이탈 확률 증가량
-  sample_churn_day_flat_prob: 0.009      # 페르소나 독립적 flat 일별 스케줄 확률 — (1-0.009)^150≈26% None
+  sample_churn_day_flat_prob: 0.0072     # 페르소나 독립적 flat 일별 스케줄 확률 (start_day~n_days 동안 일별 적용)
   sample_churn_day_start_day: 30         # decay_window 이후부터 스케줄 시작
   seasonality:
     enabled: true
