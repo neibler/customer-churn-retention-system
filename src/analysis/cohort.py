@@ -139,10 +139,16 @@ def build_cohort_retention(
     if valid_events.empty:
         end_month_num = int(base["cohort_num"].max())
     else:
-        all_event_month_num = (
-            valid_events["event_date"].dt.year * 12 + valid_events["event_date"].dt.month
-        )
-        end_month_num = int(all_event_month_num.max())
+        # 관측 프런티어 = '마지막으로 완전히 관측된 월'.
+        # 데이터가 월 중간에 끝나면(예: 2025-07-03) 그 월은 부분 관측이라
+        # 마일스톤(M_n)이 그 월에 걸릴 때 잔존율이 과소 계산된다.
+        # 마지막 이벤트일이 해당 월의 말일이 아니면 직전 월까지만 관측으로 본다.
+        last_date = valid_events["event_date"].max()
+        if last_date == (last_date + pd.offsets.MonthEnd(0)):
+            last_complete = last_date
+        else:
+            last_complete = last_date.replace(day=1) - pd.Timedelta(days=1)
+        end_month_num = int(last_complete.year * 12 + last_complete.month)
 
     activity = valid_events
     if core_events_only:
@@ -228,6 +234,67 @@ def extract_milestones(
     df = cohort_df[cohort_df["period"].isin(milestones)].copy()
     df["churn_rate"] = 1.0 - df["retention_rate"]
     return df
+
+
+def build_milestone_table(
+    milestone_df: pd.DataFrame,
+    milestones: Sequence[int] = RETENTION_MILESTONES,
+) -> pd.DataFrame:
+    """코호트 x 마일스톤(M1/M3/M6/M12) 와이드 수치표를 만든다.
+
+    행: 코호트(가입월) + 마지막 'Overall(가중평균)' 행
+    열: cohort_size, M{n}_retention, M{n}_churn  (n ∈ milestones)
+        + M{n}_observed (관측 가능 여부; 데이터 기간이 짧아 미관측이면 False)
+
+    관측 불가(observed=False)한 셀의 retention/churn 은 NaN(빈 칸)으로 둔다.
+    이렇게 하면 PNG 히트맵과 동일한 수치를 CSV 로도 그대로 확인할 수 있다.
+    """
+    if milestone_df.empty:
+        cols = ["cohort_month", "cohort_size"]
+        for m in milestones:
+            cols += [f"M{m}_retention", f"M{m}_churn", f"M{m}_observed"]
+        return pd.DataFrame(columns=cols)
+
+    ret = milestone_df.pivot(index="cohort_month", columns="period", values="retention_rate")
+    obs = milestone_df.pivot(index="cohort_month", columns="period", values="observed")
+    size = milestone_df.groupby("cohort_month")["cohort_size"].first()
+
+    rows: list[dict] = []
+    for cohort_month in ret.index:
+        row: dict = {
+            "cohort_month": str(cohort_month),
+            "cohort_size": int(size.loc[cohort_month]),
+        }
+        for m in milestones:
+            r = ret.loc[cohort_month, m] if m in ret.columns else np.nan
+            observed = bool(obs.loc[cohort_month, m]) if m in obs.columns and pd.notna(obs.loc[cohort_month, m]) else False
+            row[f"M{m}_retention"] = round(float(r), 4) if pd.notna(r) else np.nan
+            row[f"M{m}_churn"] = round(1.0 - float(r), 4) if pd.notna(r) else np.nan
+            row[f"M{m}_observed"] = observed
+        rows.append(row)
+
+    table = pd.DataFrame(rows)
+
+    # Overall: 코호트 크기로 가중평균 (관측된 셀만 사용)
+    overall: dict = {"cohort_month": "Overall", "cohort_size": int(size.sum())}
+    for m in milestones:
+        observed_rows = milestone_df[
+            (milestone_df["period"] == m) & (milestone_df["observed"])
+        ]
+        if observed_rows.empty:
+            overall[f"M{m}_retention"] = np.nan
+            overall[f"M{m}_churn"] = np.nan
+            overall[f"M{m}_observed"] = False
+        else:
+            w = observed_rows["cohort_size"].to_numpy(dtype=float)
+            r = observed_rows["retention_rate"].to_numpy(dtype=float)
+            wavg = float(np.average(r, weights=w))
+            overall[f"M{m}_retention"] = round(wavg, 4)
+            overall[f"M{m}_churn"] = round(1.0 - wavg, 4)
+            overall[f"M{m}_observed"] = True
+    table = pd.concat([table, pd.DataFrame([overall])], ignore_index=True)
+
+    return table
 
 
 def plot_retention_curve(
@@ -515,6 +582,7 @@ def run_cohort_analysis(
 
     # 3. Milestones
     milestone_df = extract_milestones(cohort_df, RETENTION_MILESTONES)
+    milestone_table = build_milestone_table(milestone_df, RETENTION_MILESTONES)
 
     # 4. Print summary
     print("\n[Cohort] Monthly cohort retention analysis completed")
@@ -578,12 +646,14 @@ def run_cohort_analysis(
 
     paths["cohort_csv"] = output_dir / "cohort_retention.csv"
     paths["milestone_csv"] = output_dir / "cohort_retention_milestones.csv"
+    paths["milestone_table_csv"] = output_dir / "cohort_milestones.csv"
     paths["retention_curve"] = output_dir / "cohort_retention_curve.png"
     paths["churn_heatmap"] = output_dir / "cohort_churn_rate_heatmap.png"
     paths["retention_heatmap"] = output_dir / "cohort_retention_heatmap.png"
 
     cohort_df.to_csv(paths["cohort_csv"], index=False)
     milestone_df.to_csv(paths["milestone_csv"], index=False)
+    milestone_table.to_csv(paths["milestone_table_csv"], index=False)
 
     plot_retention_curve(cohort_df, RETENTION_MILESTONES, paths["retention_curve"])
     plot_churn_heatmap(milestone_df, RETENTION_MILESTONES, paths["churn_heatmap"])

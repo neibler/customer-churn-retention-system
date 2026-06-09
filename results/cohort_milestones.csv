@@ -1,0 +1,10 @@
+cohort_month,cohort_size,M1_retention,M1_churn,M1_observed,M3_retention,M3_churn,M3_observed,M6_retention,M6_churn,M6_observed,M12_retention,M12_churn,M12_observed
+2024-01,2735,0.9338,0.0662,True,0.8973,0.1027,True,0.8633,0.1367,True,0.7883,0.2117,True
+2024-02,2592,0.9117,0.0883,True,0.8812,0.1188,True,0.8387,0.1613,True,0.7558,0.2442,True
+2024-03,2720,0.8956,0.1044,True,0.8743,0.1257,True,0.8331,0.1669,True,,,False
+2024-04,2722,0.8751,0.1249,True,0.8512,0.1488,True,0.8152,0.1848,True,,,False
+2024-05,2706,0.8758,0.1242,True,0.8477,0.1523,True,0.8137,0.1863,True,,,False
+2024-06,2710,0.8609,0.1391,True,0.8387,0.1613,True,0.8089,0.1911,True,,,False
+2024-07,2710,0.8325,0.1675,True,0.81,0.19,True,0.7834,0.2166,True,,,False
+2024-08,1105,0.8425,0.1575,True,0.8118,0.1882,True,0.7756,0.2244,True,,,False
+Overall,20000,0.8812,0.1188,True,0.8546,0.1454,True,0.8197,0.1803,True,0.7725,0.2275,True

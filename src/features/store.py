@@ -36,15 +36,21 @@ import pandas as pd
 
 # 같은 패키지의 모듈을 import. 패키지로 실행되든 직접 실행되든 둘 다 동작.
 try:
-    from features.rfm import compute_rfm_features, compute_change_rate_features, get_analysis_date
+    from features.rfm import compute_rfm_features, compute_change_rate_features
     from features.session import compute_session_features, compute_time_features
     from features.sequence import compute_sequence_features, compute_journey_features
+    from features.labeling import make_point_in_time_labels, resolve_cutoff, DEFAULT_WINDOW_DAYS, DEFAULT_NO_PURCHASE_DAYS
 except ImportError:  # 직접 실행 (python src/features/store.py)
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from features.rfm import compute_rfm_features, compute_change_rate_features, get_analysis_date
+    from features.rfm import compute_rfm_features, compute_change_rate_features
     from features.session import compute_session_features, compute_time_features
     from features.sequence import compute_sequence_features, compute_journey_features
+    from features.labeling import make_point_in_time_labels, resolve_cutoff, DEFAULT_WINDOW_DAYS, DEFAULT_NO_PURCHASE_DAYS
+
+
+# 라벨/적격 컬럼: 결측·이상치 처리에서 제외하고, 피처가 아닌 타깃으로 취급한다.
+LABEL_COLS: tuple[str, ...] = ("eligible", "churn_label")
 
 
 # 이상치 처리: 분위수 기반 winsorization 의 상하한 분위
@@ -270,8 +276,25 @@ def build_feature_store(
     data_dir: str | Path = "data/raw",
     output_dir: str | Path = "data/processed",
     save: bool = True,
+    cutoff: str | pd.Timestamp | None = None,
+    label_window_days: int = DEFAULT_WINDOW_DAYS,
+    no_purchase_days: int = DEFAULT_NO_PURCHASE_DAYS,
 ) -> pd.DataFrame:
     """전체 피처 파이프라인 실행 → 결측/이상치 처리 → 피처 스토어 저장.
+
+    **시점 기반(point-in-time) 설계 — 데이터 누설 방지**
+    -----------------------------------------------------
+    예측 시점 T(``cutoff``)를 도입한다.
+    - 모든 피처는 ``event_date < T`` 이벤트로만 계산한다.
+    - 타깃 ``churn_label`` 은 ``[T, T + label_window_days)`` 구매 여부로 재계산한다.
+    - T 이전에 이미 이탈한 고객은 ``eligible=False`` 로 표시한다(타깃 NaN).
+    - 시뮬레이터의 ``churned`` 는 비교/참조용으로만 보존하며 타깃이 아니다.
+
+    Parameters
+    ----------
+    cutoff : 예측 시점 T. None 이면 라벨 윈도가 데이터 안에 들어오도록 자동 산정.
+    label_window_days : 라벨 관측 윈도 길이(일). 기본 45(이탈 정의와 일치).
+    no_purchase_days  : 이탈 판정용 미구매 일수. 기본 45.
 
     저장 파일
     ---------
@@ -285,31 +308,39 @@ def build_feature_store(
 
     print("[Store] Loading raw data...")
     customers, events = _load_raw(data_dir)
-    analysis_date = get_analysis_date(events)
-    print(f"[Store] Customers: {len(customers):,}  Events: {len(events):,}")
-    print(f"[Store] Analysis date: {analysis_date.date()}")
 
-    # 1. 각 모듈 실행
-    print("[Store] Computing RFM + change-rate features...")
-    rfm_df = compute_rfm_features(customers, events, analysis_date)
-    change_df = compute_change_rate_features(customers, events, analysis_date)
+    # 0. 예측 시점 T 확정 및 피처용 이벤트 필터 (event_date < T)
+    cutoff = resolve_cutoff(events, cutoff, label_window_days)
+    events_pre = events[events["event_date"] < cutoff].copy()
+    analysis_date = cutoff  # 모든 피처의 기준일 = T
+    print(f"[Store] Customers: {len(customers):,}  Events(total): {len(events):,}")
+    print(f"[Store] Cutoff T: {cutoff.date()}  → events before T: {len(events_pre):,}")
+    print(f"[Store] Label window: [{cutoff.date()}, "
+          f"{(cutoff + pd.Timedelta(days=label_window_days)).date()})  "
+          f"(no_purchase_days={no_purchase_days})")
 
-    print("[Store] Computing session + time features...")
-    session_df = compute_session_features(customers, events)
-    time_df = compute_time_features(customers, events)
+    # 1. 각 모듈 실행 (모두 T 이전 이벤트만 사용)
+    print("[Store] Computing RFM + change-rate features (pre-T)...")
+    rfm_df = compute_rfm_features(customers, events_pre, analysis_date)
+    change_df = compute_change_rate_features(customers, events_pre, analysis_date)
 
-    print("[Store] Computing sequence + journey features...")
-    seq_df = compute_sequence_features(customers, events)
-    journey_df = compute_journey_features(customers, events, analysis_date)
+    print("[Store] Computing session + time features (pre-T)...")
+    session_df = compute_session_features(customers, events_pre)
+    time_df = compute_time_features(customers, events_pre)
+
+    print("[Store] Computing sequence + journey features (pre-T)...")
+    seq_df = compute_sequence_features(customers, events_pre)
+    journey_df = compute_journey_features(customers, events_pre, analysis_date)
 
     # 2. 통합 (customer_id 기준 left join, customers 가 master)
+    #    churned 는 시뮬레이터 전체기간 라벨 — 비교/참조용으로만 보존(타깃 아님).
     fs = customers[["customer_id", "persona", "is_treatment", "churned"]].copy()
     for d in [rfm_df, change_df, session_df, time_df, seq_df, journey_df]:
         fs = fs.merge(d, on="customer_id", how="left")
 
     print(f"[Store] Combined shape: {fs.shape}")
 
-    # 3. 결측 처리 (사전에 ±inf 도 NaN 으로 통일)
+    # 3. 결측 처리 (사전에 ±inf 도 NaN 으로 통일) — 피처에만 적용
     fs = fs.replace([np.inf, -np.inf], np.nan)
     fs, missing_report = handle_missing_values(fs)
     print(f"[Store] Missing handled: {len(missing_report)} columns had NaNs")
@@ -329,15 +360,38 @@ def build_feature_store(
         for col, info in residual_report.items():
             missing_report[f"{col}__post_outlier"] = info
 
-    # 6. 저장
+    # 6. 시점 기반 라벨/적격 부착 (결측·이상치 처리 '이후' → 충전 대상에서 제외)
+    labels = make_point_in_time_labels(
+        customers, events, cutoff,
+        window_days=label_window_days, no_purchase_days=no_purchase_days,
+    )
+    fs = fs.merge(labels[["customer_id", *LABEL_COLS]], on="customer_id", how="left")
+
+    n_eligible = int(fs["eligible"].sum())
+    elig_mask = fs["eligible"].fillna(False)
+    churn_rate = float(fs.loc[elig_mask, "churn_label"].mean()) if n_eligible else float("nan")
+    print(f"[Store] Eligible (prediction set): {n_eligible:,} / {len(fs):,}  "
+          f"| point-in-time churn rate: {churn_rate:.4f}")
+
+    # 7. 저장
     if save:
         meta = {
-            "analysis_date": str(analysis_date.date()),
+            "cutoff_date": str(cutoff.date()),
+            "label_window_days": int(label_window_days),
+            "no_purchase_days": int(no_purchase_days),
+            "label_column": "churn_label",
+            "eligibility_column": "eligible",
             "n_customers": int(len(fs)),
-            "n_features": int(fs.shape[1] - 4),  # exclude id/persona/is_treatment/churned
+            "n_eligible": n_eligible,
+            "point_in_time_churn_rate": round(churn_rate, 4),
+            # 피처 수 = 전체 - (id/persona/is_treatment/churned) - (eligible/churn_label)
+            "n_features": int(fs.shape[1] - 4 - len(LABEL_COLS)),
             "missing_handling_report": missing_report,
             "outlier_handling_report": outlier_report,
-            "feature_columns": [c for c in fs.columns if c not in {"customer_id", "persona", "is_treatment", "churned"}],
+            "feature_columns": [
+                c for c in fs.columns
+                if c not in {"customer_id", "persona", "is_treatment", "churned", *LABEL_COLS}
+            ],
         }
 
         csv_path = output_dir / "feature_store.csv"
@@ -389,8 +443,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Build feature store with missing/outlier handling")
     parser.add_argument("--data-dir", default="data/raw")
     parser.add_argument("--output-dir", default="data/processed")
+    parser.add_argument("--cutoff", default=None,
+                        help="예측 시점 T (YYYY-MM-DD). 미지정 시 데이터 끝에서 자동 산정.")
+    parser.add_argument("--label-window-days", type=int, default=DEFAULT_WINDOW_DAYS,
+                        help="라벨 관측 윈도 길이(일). 기본 45.")
+    parser.add_argument("--no-purchase-days", type=int, default=DEFAULT_NO_PURCHASE_DAYS,
+                        help="이탈 판정 미구매 일수. 기본 45.")
     args = parser.parse_args()
-    fs = build_feature_store(data_dir=args.data_dir, output_dir=args.output_dir)
+    fs = build_feature_store(
+        data_dir=args.data_dir,
+        output_dir=args.output_dir,
+        cutoff=args.cutoff,
+        label_window_days=args.label_window_days,
+        no_purchase_days=args.no_purchase_days,
+    )
     print(f"\n[Store] Final feature store: {fs.shape[0]:,} rows × {fs.shape[1]} cols")
 
 
