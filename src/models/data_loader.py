@@ -222,10 +222,22 @@ def load_dataset(
         n_before = len(features_df)
         df = features_df.merge(customers_df[needed], on=id_col, how="inner")
 
-        # 병합 후 NaN 결측치 행 제거
+        # 병합 후 NaN 결측치 행 제거 (astype 에러 방지)
         df = df.dropna(subset=[target_col, treatment_col]).copy()
 
-        # 필터링 및 NaN 제거로 인한 행 손실은 에러 대신 경고(warning)로 처리
+        # [추가됨] 3. 최종 데이터 계약 재검증 (중복 방지 및 최소 행 수 보장)
+        # 타겟/처치 컬럼을 제외한 feature 데이터로 validate_features 재호출
+        validate_features(df.drop(columns=[target_col, treatment_col]), id_col=id_col)
+
+        if df[id_col].duplicated().any():
+            raise ValueError(f"[Loader] 병합 후 중복된 ID가 존재합니다. {id_col}는 고유해야 합니다.")
+
+        if len(df) < 100:
+            raise ValueError(
+                f"[Loader] 데이터 부족: 병합 및 결측치 제거 후 학습을 위한 최소 데이터 100건이 필요합니다 (현재 {len(df)}건)."
+            )
+
+        # 필터링 및 NaN 제거로 인한 행 손실은 경고(warning)로 처리하되, 위 계약을 통과한 경우에만 진행됨
         if len(df) != n_before:
             logger.warning(
                 f"[Loader] inner join 및 필터링/NaN 제거로 인한 행 변경: features={n_before} → joined={len(df)}"
