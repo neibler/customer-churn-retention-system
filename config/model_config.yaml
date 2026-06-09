@@ -20,7 +20,7 @@ data:
   id_col: customer_id
   random_state: 42
   stratify: true
-  target_col: churned
+  target_col: churn_label
   test_size: 0.2
   treatment_col: is_treatment
   val_size: 0.1
@@ -172,8 +172,8 @@ model_version: v1
 # ════════════════════════════════════════════════════════════════
 paths:
   customers: data/raw/customers.csv
-  events: data/raw/events.csv # 기존 이벤트 데이터 경로
-  features: data/processed/feature_store.parquet # 기존 피처스토어 경로
+  events: data/raw/events.csv
+  features: data/processed/feature_store.parquet
   logs_dir: logs/
   model_report: docs/model_report.md
   models_dir: models/
