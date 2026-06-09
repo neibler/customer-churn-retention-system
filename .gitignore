@@ -210,6 +210,7 @@ __marimo__/
 #gitignore 보강** — data/raw, 모델 파일 등 커밋 방지
 data/raw/
 data/processed/
+data/backup_*/
 *.pkl
 *.pt
 __pycache__/
