@@ -203,6 +203,15 @@ def load_dataset(
             )
 
         customers_df = pd.read_csv(customers_path)
+
+        # churn_label일 경우 eligible(분석 대상) 고객만 필터링
+        if target_col == "churn_label":
+            if "eligible" not in customers_df.columns:
+                raise ValueError(
+                    "[Loader] target_col=churn_label 인 경우 customers.csv 에 eligible 컬럼이 필요합니다."
+                )
+            customers_df = customers_df[customers_df["eligible"].fillna(False).eq(True)].copy()
+
         validate_features(features_df, id_col=id_col)
 
         needed = [id_col, target_col, treatment_col]
@@ -212,8 +221,15 @@ def load_dataset(
 
         n_before = len(features_df)
         df = features_df.merge(customers_df[needed], on=id_col, how="inner")
+
+        # 병합 후 NaN 결측치 행 제거
+        df = df.dropna(subset=[target_col, treatment_col]).copy()
+
+        # 필터링 및 NaN 제거로 인한 행 손실은 에러 대신 경고(warning)로 처리
         if len(df) != n_before:
-            raise ValueError(f"[Loader] inner join 시 행 손실: features={n_before} → joined={len(df)}")
+            logger.warning(
+                f"[Loader] inner join 및 필터링/NaN 제거로 인한 행 변경: features={n_before} → joined={len(df)}"
+            )
 
     feature_names = [c for c in df.columns if c not in (id_col, target_col, treatment_col)]
     X = df[feature_names].copy()
