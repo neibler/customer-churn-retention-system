@@ -522,6 +522,17 @@ flowchart LR
 
 > 🟡 = 코드 완료 (실행 시 생성). data/processed/는 .gitignore 대상.
 
+### 대시보드
+Overview
+![dashboard](docs/screenshots/1.png)
+Cohort
+![dashboard](docs/screenshots/2.png)
+Uplift & CLV Analysis
+![dashboard](docs/screenshots/3.png)
+Budget Optimization & A/B Test
+![dashboard](docs/screenshots/4.png)
+Data & Model Monitoring
+![dashboard](docs/screenshots/5.png)
 ---
 
 ## 보너스 과제
