@@ -548,7 +548,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Uplift Modeling (T-Learner + X-Learner)")
     parser.add_argument("--data-dir",   default="data/raw", help="시뮬레이터 출력 디렉토리")
     parser.add_argument("--output-dir", default="results",  help="결과 저장 디렉토리")
-    args = parser.parse_args()
+    # main.py 전역 --mode 디스패치로 진입 시 sys.argv 에 --mode 가 남아있으므로
+    # parse_known_args 로 알 수 없는 인자는 무시 (main_train.main() 과 동일 패턴).
+    args, _ = parser.parse_known_args()
     run_uplift_pipeline(data_dir=args.data_dir, output_dir=args.output_dir)
 
 
