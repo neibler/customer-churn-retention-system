@@ -451,15 +451,15 @@ def plot_retention_heatmap(
 # ---------------------------------------------------------------------------
 
 def _purchase_counts(customers: pd.DataFrame, events: pd.DataFrame) -> pd.Series:
-    """고객별 누적 구매 횟수(purchase 이벤트 수). 비구매자는 0."""
-    base_ids = customers["customer_id"].drop_duplicates()
+    """고객별 누적 구매 횟수(purchase 이벤트 수). 비구매자는 0.
+
+    결과는 customers 모집단(base_ids)으로 한정한다. events 에만 존재하는
+    ID(customers 미포함)는 제외하여 total 집계가 부풀려지지 않도록 한다.
+    """
+    base_ids = pd.Index(customers["customer_id"].drop_duplicates(), name="customer_id")
     purch = events.loc[events["event_type"] == "purchase", "customer_id"]
     counts = purch.value_counts()
-    return (
-        pd.Series(0, index=pd.Index(base_ids, name="customer_id"), dtype="int64")
-        .add(counts, fill_value=0)
-        .astype("int64")
-    )
+    return counts.reindex(index=base_ids, fill_value=0).astype("int64")
 
 
 def _progression_stage(purchase_count: int) -> str:
