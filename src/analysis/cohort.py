@@ -1,8 +1,9 @@
 """Cohort retention analysis — Task 1.4 + WBS 3.6 (M12 / journey funnel).
 
 시뮬레이터가 생성한 data/raw/customers.csv · events.csv 를 직접 읽어
-코호트별 M1, M3, M6, M12 리텐션 곡선과 고객 여정 퍼널(page_view →
-search → add_to_cart → purchase) 전환율을 산출하고 시각화한다.
+코호트별 M1, M3, M6, M12 리텐션 곡선과 고객 생애주기 여정 퍼널(가입 →
+첫구매 → 재구매 → 충성 → 이탈) 전환율 및 이탈 시점을 산출하고 시각화한다.
+(명세서 #2 "고객 여정 퍼널별 전환율과 이탈 시점 분석" 요구사항 충족.)
 
 Simulator output schema
 -----------------------
@@ -28,6 +29,33 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from matplotlib import font_manager
+
+
+_KOREAN_FONT_READY = False
+
+
+def _setup_korean_font() -> None:
+    """플롯 한글 라벨을 위한 폰트 설정 (OS 독립적, 1회만 적용).
+
+    우선순위: Malgun Gothic(Win) → AppleGothic(Mac) → Noto Sans CJK / NanumGothic
+    (Linux). 사용 가능한 폰트가 없으면 경고만 출력하고 기본값으로 진행한다.
+    """
+    global _KOREAN_FONT_READY
+    if _KOREAN_FONT_READY:
+        return
+    candidates = [
+        "Malgun Gothic", "AppleGothic", "NanumGothic",
+        "Noto Sans CJK KR", "Noto Sans CJK JP", "Noto Sans KR",
+    ]
+    available = {f.name for f in font_manager.fontManager.ttflist}
+    chosen = next((c for c in candidates if c in available), None)
+    if chosen is not None:
+        plt.rcParams["font.family"] = chosen
+    else:
+        print("[Cohort] 경고: 한글 폰트를 찾지 못했습니다. 라벨이 깨질 수 있습니다.")
+    plt.rcParams["axes.unicode_minus"] = False  # 음수 부호 깨짐 방지
+    _KOREAN_FONT_READY = True
 
 
 RETENTION_MILESTONES: tuple[int, ...] = (1, 3, 6, 12)
@@ -41,13 +69,37 @@ CORE_EVENT_TYPES: set[str] = {
     "purchase",
 }
 
-# Customer journey funnel stages (ordered)
-FUNNEL_STAGES: tuple[str, ...] = (
-    "page_view",
-    "search",
-    "add_to_cart",
-    "purchase",
-)
+# Customer lifecycle journey funnel stages — 명세서 #2 정의
+#   가입(signup) → 첫구매(first_buy) → 재구매(repeat) → 충성(loyal) → 이탈(churned)
+# 단계 판정 기준은 src/features/sequence.py 의 여정 단계 정의와 일치시킨다.
+#   signup    : 전체 고객(모두 가입함)
+#   first_buy : purchase_count >= 1
+#   repeat    : purchase_count >= 2
+#   loyal     : purchase_count >= LOYAL_PURCHASE_THRESHOLD
+#   churned   : customers.churned == 1 (진행 단계가 아닌 '이탈' 종료 상태)
+LOYAL_PURCHASE_THRESHOLD: int = 5
+
+# 진행(progression) 단계: 단조 포함 관계(loyal ⊆ repeat ⊆ first_buy ⊆ signup).
+# 이탈(churned)은 종료 상태이므로 진행 단계와 분리해 별도 분석한다.
+PROGRESSION_STAGES: tuple[str, ...] = ("signup", "first_buy", "repeat", "loyal")
+FUNNEL_STAGES: tuple[str, ...] = (*PROGRESSION_STAGES, "churned")
+
+# 단계 한글 라벨 (시각화/보고용)
+STAGE_LABELS_KR: dict[str, str] = {
+    "signup": "가입",
+    "first_buy": "첫구매",
+    "repeat": "재구매",
+    "loyal": "충성",
+    "churned": "이탈",
+}
+
+# 진행 단계 진입에 필요한 최소 구매 횟수
+STAGE_MIN_PURCHASES: dict[str, int] = {
+    "signup": 0,
+    "first_buy": 1,
+    "repeat": 2,
+    "loyal": LOYAL_PURCHASE_THRESHOLD,
+}
 
 
 def load_data(data_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -398,125 +450,226 @@ def plot_retention_heatmap(
 # WBS 3.6 — Customer journey funnel
 # ---------------------------------------------------------------------------
 
+def _purchase_counts(customers: pd.DataFrame, events: pd.DataFrame) -> pd.Series:
+    """고객별 누적 구매 횟수(purchase 이벤트 수). 비구매자는 0."""
+    base_ids = customers["customer_id"].drop_duplicates()
+    purch = events.loc[events["event_type"] == "purchase", "customer_id"]
+    counts = purch.value_counts()
+    return (
+        pd.Series(0, index=pd.Index(base_ids, name="customer_id"), dtype="int64")
+        .add(counts, fill_value=0)
+        .astype("int64")
+    )
+
+
+def _progression_stage(purchase_count: int) -> str:
+    """구매 횟수 → 도달한 가장 깊은 진행 단계(signup/first_buy/repeat/loyal)."""
+    if purchase_count >= LOYAL_PURCHASE_THRESHOLD:
+        return "loyal"
+    if purchase_count >= 2:
+        return "repeat"
+    if purchase_count >= 1:
+        return "first_buy"
+    return "signup"
+
+
 def build_journey_funnel(
     customers: pd.DataFrame,
     events: pd.DataFrame,
-    stages: Sequence[str] = FUNNEL_STAGES,
+    stages: Sequence[str] = PROGRESSION_STAGES,
 ) -> pd.DataFrame:
-    """Aggregate funnel stage reach + step-wise conversion rates.
+    """생애주기 여정 퍼널(가입→첫구매→재구매→충성) + 이탈 종료 상태 집계.
 
-    A customer "reaches" a stage if they have ≥1 event of that type at any
-    point in their lifetime. Step conversion = customers reaching stage N
-    among those who reached stage N-1.
+    명세서 #2 "고객 여정 퍼널(가입 → 첫구매 → 재구매 → 충성 → 이탈)별 전환율"
+    요구사항을 충족한다. 진행 단계는 누적 구매 횟수 기준 단조 포함 관계로 정의하며,
+    각 단계 도달 = 해당 단계 최소 구매 횟수 이상. 이탈(churned)은 진행 단계가 아닌
+    종료 상태이므로 reach_rate=전체 이탈률로 표기하고 step_conv_rate는 NaN으로 둔다
+    (이탈 시점 분석은 build_churn_timing 참조).
 
     Returns
     -------
-    DataFrame with columns:
-        stage, customers, reach_rate, step_conv_rate
-        (step_conv_rate is NaN for the first stage)
+    DataFrame columns:
+        stage, stage_kr, customers, reach_rate, step_conv_rate
+        (step_conv_rate: 직전 단계 대비 전환율; signup/churned 는 NaN)
     """
-    if customers.empty or events.empty:
-        return pd.DataFrame(
-            columns=["stage", "customers", "reach_rate", "step_conv_rate"]
-        )
+    cols = ["stage", "stage_kr", "customers", "reach_rate", "step_conv_rate"]
+    if customers.empty:
+        return pd.DataFrame(columns=cols)
 
-    base_ids = customers["customer_id"].drop_duplicates()
-    total = int(base_ids.nunique())
+    counts = _purchase_counts(customers, events)
+    total = int(counts.shape[0])
 
-    # Customers reaching each stage
     rows: list[dict] = []
-    prev_reached: set[str] | None = None
-
+    prev_n: int | None = None
     for stage in stages:
-        stage_events = events[events["event_type"] == stage]
-        reached = set(stage_events["customer_id"].unique()) & set(base_ids)
-        n = len(reached)
-
-        if prev_reached is None:
+        min_p = STAGE_MIN_PURCHASES[stage]
+        n = int((counts >= min_p).sum())
+        if prev_n is None:
             step_conv = np.nan
         else:
-            # Of customers who reached previous stage, how many reach this?
-            both = reached & prev_reached
-            step_conv = len(both) / max(len(prev_reached), 1)
+            step_conv = n / prev_n if prev_n > 0 else np.nan
+        rows.append({
+            "stage": stage,
+            "stage_kr": STAGE_LABELS_KR[stage],
+            "customers": n,
+            "reach_rate": n / total if total else np.nan,
+            "step_conv_rate": step_conv,
+        })
+        prev_n = n
 
-        rows.append(
-            {
-                "stage": stage,
-                "customers": n,
-                "reach_rate": n / max(total, 1),
-                "step_conv_rate": step_conv,
-            }
+    # 이탈(churned): 진행 단계가 아닌 종료 상태
+    if "churned" in customers.columns:
+        n_churn = int(customers["churned"].fillna(0).astype(int).sum())
+    else:
+        n_churn = 0
+    rows.append({
+        "stage": "churned",
+        "stage_kr": STAGE_LABELS_KR["churned"],
+        "customers": n_churn,
+        "reach_rate": n_churn / total if total else np.nan,
+        "step_conv_rate": np.nan,  # 종료 상태 — 진행 전환율 정의 불가
+    })
+
+    return pd.DataFrame(rows, columns=cols)
+
+
+def build_churn_timing(
+    customers: pd.DataFrame,
+    events: pd.DataFrame,
+) -> pd.DataFrame:
+    """이탈 시점 분석 — 이탈 고객이 '어느 생애주기 단계에서' 이탈했는지 집계.
+
+    명세서 #2 "...별 전환율과 이탈 시점을 분석" 의 '이탈 시점' 파트를 담당한다.
+    각 고객을 도달한 가장 깊은 진행 단계(signup/first_buy/repeat/loyal)로 배정한 뒤,
+    단계별 전체 고객 수 / 이탈 고객 수 / 단계 내 이탈률 / 이탈자 중 비중을 산출한다.
+
+    Returns
+    -------
+    DataFrame columns:
+        stage, stage_kr, customers_at_stage, churned, churn_rate, pct_of_churners
+    """
+    cols = ["stage", "stage_kr", "customers_at_stage",
+            "churned", "churn_rate", "pct_of_churners"]
+    if customers.empty:
+        return pd.DataFrame(columns=cols)
+
+    counts = _purchase_counts(customers, events)
+    df = customers[["customer_id"]].drop_duplicates().copy()
+    df["purchase_count"] = df["customer_id"].map(counts).fillna(0).astype(int)
+    df["stage"] = df["purchase_count"].map(_progression_stage)
+    if "churned" in customers.columns:
+        churn_map = (
+            customers.drop_duplicates("customer_id")
+            .set_index("customer_id")["churned"].fillna(0).astype(int)
         )
-        prev_reached = reached
+        df["churned"] = df["customer_id"].map(churn_map).fillna(0).astype(int)
+    else:
+        df["churned"] = 0
 
-    return pd.DataFrame(rows)
+    total_churn = int(df["churned"].sum())
+    rows: list[dict] = []
+    for stage in PROGRESSION_STAGES:
+        grp = df[df["stage"] == stage]
+        n_stage = int(len(grp))
+        n_churn = int(grp["churned"].sum())
+        rows.append({
+            "stage": stage,
+            "stage_kr": STAGE_LABELS_KR[stage],
+            "customers_at_stage": n_stage,
+            "churned": n_churn,
+            "churn_rate": n_churn / n_stage if n_stage else np.nan,
+            "pct_of_churners": n_churn / total_churn if total_churn else np.nan,
+        })
+    return pd.DataFrame(rows, columns=cols)
 
 
 def build_cohort_journey_funnel(
     customers: pd.DataFrame,
     events: pd.DataFrame,
-    stages: Sequence[str] = FUNNEL_STAGES,
+    stages: Sequence[str] = PROGRESSION_STAGES,
 ) -> pd.DataFrame:
-    """Build funnel per acquisition cohort (long format)."""
-    if customers.empty or events.empty:
-        return pd.DataFrame(
-            columns=[
-                "cohort_month", "stage", "customers",
-                "reach_rate", "step_conv_rate",
-            ]
-        )
+    """가입월 코호트별 생애주기 퍼널 (long format)."""
+    cols = ["cohort_month", "stage", "stage_kr",
+            "customers", "reach_rate", "step_conv_rate"]
+    if customers.empty or "acquisition_month" not in customers.columns:
+        return pd.DataFrame(columns=cols)
 
     out_rows: list[pd.DataFrame] = []
     cohort_map = customers[["customer_id", "acquisition_month"]].drop_duplicates(
         subset=["customer_id"]
     )
-
     for cohort_month, grp in cohort_map.groupby("acquisition_month"):
-        cohort_customers = customers[customers["customer_id"].isin(grp["customer_id"])]
-        cohort_events = events[events["customer_id"].isin(grp["customer_id"])]
+        ids = grp["customer_id"]
+        cohort_customers = customers[customers["customer_id"].isin(ids)]
+        cohort_events = events[events["customer_id"].isin(ids)]
         funnel = build_journey_funnel(cohort_customers, cohort_events, stages)
         funnel.insert(0, "cohort_month", str(cohort_month))
         out_rows.append(funnel)
 
     if not out_rows:
-        return pd.DataFrame(
-            columns=[
-                "cohort_month", "stage", "customers",
-                "reach_rate", "step_conv_rate",
-            ]
-        )
+        return pd.DataFrame(columns=cols)
     return pd.concat(out_rows, ignore_index=True)
 
 
 def plot_journey_funnel(
     funnel_df: pd.DataFrame,
     output_path: Path,
+    churn_timing_df: pd.DataFrame | None = None,
 ) -> None:
-    """Save overall journey funnel as a horizontal bar chart with rates."""
+    """생애주기 여정 퍼널을 가로 막대(전환율) + 이탈 시점 막대로 시각화."""
     if funnel_df.empty:
         return
+    _setup_korean_font()
 
-    fig, ax = plt.subplots(figsize=(10, 5.5))
-    stages = funnel_df["stage"].tolist()
+    has_timing = churn_timing_df is not None and not churn_timing_df.empty
+    if has_timing:
+        fig, (ax, ax2) = plt.subplots(
+            1, 2, figsize=(15, 5.5), gridspec_kw={"width_ratios": [1.5, 1]}
+        )
+    else:
+        fig, ax = plt.subplots(figsize=(10, 5.5))
+
+    # 진행 단계 퍼널 (이탈은 별도 색)
+    labels = [f"{r.stage_kr}\n({r.stage})" for r in funnel_df.itertuples()]
     counts = funnel_df["customers"].tolist()
     reach = funnel_df["reach_rate"].tolist()
     step = funnel_df["step_conv_rate"].tolist()
+    colors = ["#4C72B0" if s != "churned" else "#C44E52"
+              for s in funnel_df["stage"]]
 
-    y_pos = np.arange(len(stages))[::-1]  # top stage at top
-    ax.barh(y_pos, counts, color="#4C72B0", alpha=0.85)
+    y_pos = np.arange(len(labels))[::-1]
+    ax.barh(y_pos, counts, color=colors, alpha=0.85)
     ax.set_yticks(y_pos)
-    ax.set_yticklabels(stages)
-    ax.set_xlabel("Customers reaching stage")
-    ax.set_title("Customer Journey Funnel (page_view → search → add_to_cart → purchase)")
+    ax.set_yticklabels(labels)
+    ax.set_xlabel("고객 수 (customers reaching stage)")
+    ax.set_title("고객 생애주기 여정 퍼널 (가입→첫구매→재구매→충성 / 이탈)")
 
     for i, (cnt, r, s) in enumerate(zip(counts, reach, step)):
         label = f"{cnt:,} ({r:.1%})"
         if not pd.isna(s):
-            label += f" — step conv {s:.1%}"
+            label += f" — 전환 {s:.1%}"
         ax.text(cnt, y_pos[i], "  " + label, va="center", fontsize=9)
 
-    ax.set_xlim(0, max(counts) * 1.35 if counts else 1)
+    ax.set_xlim(0, max(counts) * 1.4 if counts else 1)
     ax.grid(axis="x", alpha=0.25)
+
+    # 이탈 시점: 단계별 이탈률
+    if has_timing:
+        st_labels = [r.stage_kr for r in churn_timing_df.itertuples()]
+        st_rate = churn_timing_df["churn_rate"].fillna(0).tolist()
+        st_pct = churn_timing_df["pct_of_churners"].fillna(0).tolist()
+        x = np.arange(len(st_labels))
+        bars = ax2.bar(x, st_rate, color="#C44E52", alpha=0.8)
+        ax2.set_xticks(x)
+        ax2.set_xticklabels(st_labels)
+        ax2.set_ylabel("단계 내 이탈률 (churn rate)")
+        ax2.set_title("이탈 시점 — 단계별 이탈률 / 이탈자 비중")
+        ax2.set_ylim(0, max(st_rate) * 1.3 if any(st_rate) else 1)
+        for xi, (rate, pct) in enumerate(zip(st_rate, st_pct)):
+            ax2.text(xi, rate, f"{rate:.1%}\n(이탈자{pct:.0%})",
+                     ha="center", va="bottom", fontsize=8)
+        ax2.grid(axis="y", alpha=0.25)
+
     fig.tight_layout()
     fig.savefig(output_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
@@ -526,27 +679,28 @@ def plot_cohort_journey_funnel(
     cohort_funnel_df: pd.DataFrame,
     output_path: Path,
 ) -> None:
-    """Save cohort × stage step-conversion heatmap."""
+    """코호트 × 단계 전환율 히트맵 (진행 단계만)."""
     if cohort_funnel_df.empty:
         return
+    _setup_korean_font()
 
     pivot = cohort_funnel_df.pivot(
         index="cohort_month", columns="stage", values="step_conv_rate"
     )
-    # Reorder columns to canonical funnel order, drop first stage (NaN-only)
-    ordered = [s for s in FUNNEL_STAGES if s in pivot.columns]
+    ordered = [s for s in PROGRESSION_STAGES if s in pivot.columns]
     pivot = pivot.reindex(columns=ordered)
     if pivot.shape[1] > 1:
-        pivot = pivot.iloc[:, 1:]  # drop first stage (no step conv)
+        pivot = pivot.iloc[:, 1:]  # signup 은 전환율 정의 없음 → 제외
+    pivot = pivot.rename(columns=STAGE_LABELS_KR)
 
     fig, ax = plt.subplots(figsize=(9, 5.5))
     sns.heatmap(
         pivot, annot=True, fmt=".1%", cmap="YlGnBu",
         ax=ax, vmin=0, vmax=1, linewidths=0.5,
     )
-    ax.set_title("Cohort × Funnel Step Conversion Rate")
-    ax.set_xlabel("Funnel step (conversion from previous stage)")
-    ax.set_ylabel("Acquisition cohort")
+    ax.set_title("코호트 × 생애주기 단계 전환율")
+    ax.set_xlabel("단계 전환 (직전 단계 대비)")
+    ax.set_ylabel("가입 코호트")
     fig.tight_layout()
     fig.savefig(output_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
@@ -659,25 +813,37 @@ def run_cohort_analysis(
     plot_churn_heatmap(milestone_df, RETENTION_MILESTONES, paths["churn_heatmap"])
     plot_retention_heatmap(cohort_df, paths["retention_heatmap"])
 
-    # 6. WBS 3.6 — Journey funnel
+    # 6. WBS 3.6 — 생애주기 여정 퍼널 (가입→첫구매→재구매→충성→이탈)
     funnel_df = build_journey_funnel(customers, events)
+    churn_timing_df = build_churn_timing(customers, events)
     cohort_funnel_df = build_cohort_journey_funnel(customers, events)
 
     paths["funnel_csv"] = output_dir / "journey_funnel_overall.csv"
+    paths["churn_timing_csv"] = output_dir / "journey_funnel_churn_timing.csv"
     paths["cohort_funnel_csv"] = output_dir / "journey_funnel_by_cohort.csv"
     paths["funnel_plot"] = output_dir / "journey_funnel.png"
     paths["cohort_funnel_plot"] = output_dir / "journey_funnel_by_cohort.png"
 
     funnel_df.to_csv(paths["funnel_csv"], index=False)
+    churn_timing_df.to_csv(paths["churn_timing_csv"], index=False)
     cohort_funnel_df.to_csv(paths["cohort_funnel_csv"], index=False)
-    plot_journey_funnel(funnel_df, paths["funnel_plot"])
+    plot_journey_funnel(funnel_df, paths["funnel_plot"], churn_timing_df)
     plot_cohort_journey_funnel(cohort_funnel_df, paths["cohort_funnel_plot"])
 
-    print("\n[Cohort] Journey funnel (overall):")
+    print("\n[Cohort] 생애주기 여정 퍼널 (전체):")
     for _, row in funnel_df.iterrows():
-        step = f" (step conv {row['step_conv_rate']:.1%})" if pd.notna(row["step_conv_rate"]) else ""
-        print(f"  {row['stage']:>13s}: {int(row['customers']):>5,} customers"
-              f" — reach {row['reach_rate']:.1%}{step}")
+        step = (f" — 전환 {row['step_conv_rate']:.1%}"
+                if pd.notna(row["step_conv_rate"]) else "")
+        tag = " [종료상태]" if row["stage"] == "churned" else ""
+        print(f"  {row['stage_kr']}({row['stage']:>9s}): "
+              f"{int(row['customers']):>6,}명 — 도달 {row['reach_rate']:.1%}{step}{tag}")
+
+    print("\n[Cohort] 이탈 시점 (단계별 이탈률 / 이탈자 중 비중):")
+    for _, row in churn_timing_df.iterrows():
+        print(f"  {row['stage_kr']}({row['stage']:>9s}): "
+              f"고객 {int(row['customers_at_stage']):>6,}명, "
+              f"이탈 {int(row['churned']):>5,}명 "
+              f"(이탈률 {row['churn_rate']:.1%}, 이탈자 중 {row['pct_of_churners']:.1%})")
 
     print(f"\n[Cohort] Saved to {output_dir}/")
     for name, p in paths.items():
