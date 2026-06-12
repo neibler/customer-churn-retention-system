@@ -1,5 +1,6 @@
-stage,customers,reach_rate,step_conv_rate
-page_view,18873,0.94365,
-search,18765,0.93825,0.9889789646585069
-add_to_cart,18532,0.9266,0.9815614175326406
-purchase,18135,0.90675,0.9705374487373193
+stage,stage_kr,customers,reach_rate,step_conv_rate
+signup,가입,20000,1.0,
+first_buy,첫구매,18135,0.90675,0.90675
+repeat,재구매,17206,0.8603,0.9487730907085746
+loyal,충성,14443,0.72215,0.839416482622341
+churned,이탈,4629,0.23145,
