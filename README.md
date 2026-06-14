@@ -465,6 +465,7 @@ flowchart LR
     UPLIFT --> OPT
     TRAIN --> DASH
     OPT --> DASH
+    MON --> DASH
 ```
 
 ### 데이터 흐름 (파일 기준)

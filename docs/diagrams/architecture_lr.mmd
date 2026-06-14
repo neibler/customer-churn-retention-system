@@ -4,6 +4,7 @@ flowchart LR
     FEAT["feature"]
     UPLIFT["uplift"]
     TRAIN["train"]
+    MON["monitoring"]
     OPT["optimize"]
     DASH["dashboard\n:8501"]
 
@@ -11,6 +12,8 @@ flowchart LR
     SIM --> FEAT
     SIM --> UPLIFT
     FEAT --> TRAIN
+    FEAT --> MON
     UPLIFT --> OPT
     TRAIN --> DASH
     OPT --> DASH
+    MON --> DASH

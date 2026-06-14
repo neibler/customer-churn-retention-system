@@ -111,6 +111,8 @@ services:
         condition: service_completed_successfully
       optimize:
         condition: service_completed_successfully
+      monitoring:
+        condition: service_completed_successfully
     volumes:
       - ./data:/app/data
       - ./models:/app/models

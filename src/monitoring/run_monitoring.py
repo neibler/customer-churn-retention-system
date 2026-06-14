@@ -114,18 +114,30 @@ def run_drift_monitoring(
     reference_df = fs[fs["signup_date"] <= split_ts]
     current_df = fs[fs["signup_date"] > split_ts]
 
+    # 가입일이 한 시점에 쏠리면 중앙값 분할로 한쪽이 비어, 빈 metrics/alerts 로
+    # '정상 완료'처럼 보이는 오인 리포트가 생긴다 → fail-fast 로 차단.
+    if reference_df.empty or current_df.empty:
+        raise ValueError(
+            f"코호트 분할 결과 한쪽이 비었습니다 "
+            f"(reference={len(reference_df)}, current={len(current_df)}, "
+            f"split={pd.Timestamp(split_ts).date()}). "
+            "signup_date 분포가 한 시점에 몰려 있는지 확인하세요."
+        )
+
     feature_cols = _numeric_feature_cols(fs)
 
     detector = DriftDetector(threshold_psi=threshold_psi, threshold_ks=threshold_ks)
     detector.run_monitoring(reference_df, current_df, feature_cols)
 
     # 분할 컨텍스트를 리포트에 부착 (run_monitoring 이 report 를 초기화하므로 그 이후에).
+    # n_features_checked 는 후보 수가 아니라 detector 가 실제 지표를 산출한 피처 수.
     detector.report["split"] = {
         "method": "signup_cohort_median",
         "split_date": str(pd.Timestamp(split_ts).date()),
         "n_reference": int(len(reference_df)),
         "n_current": int(len(current_df)),
-        "n_features_checked": len(feature_cols),
+        "n_features_candidate": len(feature_cols),
+        "n_features_checked": len(detector.report["metrics"]),
     }
     detector.report["n_alerts"] = len(detector.report["alerts"])
 
