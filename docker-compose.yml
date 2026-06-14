@@ -85,6 +85,20 @@ services:
       - ./config:/app/config
     command: python src/main.py --mode optimize
 
+  monitoring:
+    build: .
+    container_name: churn-monitoring
+    env_file:
+      - .env
+    depends_on:
+      feature:
+        condition: service_completed_successfully
+    volumes:
+      - ./data:/app/data
+      - ./results:/app/results
+      - ./config:/app/config
+    command: python src/main.py --mode monitor
+
   dashboard:
     build: .
     container_name: churn-dashboard
@@ -96,6 +110,8 @@ services:
       train:
         condition: service_completed_successfully
       optimize:
+        condition: service_completed_successfully
+      monitoring:
         condition: service_completed_successfully
     volumes:
       - ./data:/app/data

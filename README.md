@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-blue.svg)](https://docs.docker.com/compose/)
-![Status](https://img.shields.io/badge/Status-In%20Development-yellow.svg)
+![Status](https://img.shields.io/badge/Status-Feature%20Complete-brightgreen.svg)
 
 ## 목차
 
@@ -19,9 +19,8 @@
 8. [환경변수](#환경변수)
 9. [데이터 흐름](#데이터-흐름)
 10. [산출물 가이드](#산출물-가이드)
-11. [보너스 과제](#보너스-과제)
-12. [팀 정보](#팀-정보)
-13. [마일스톤](#마일스톤)
+11. [팀 정보](#팀-정보)
+12. [마일스톤](#마일스톤)
 
 ---
 
@@ -46,6 +45,7 @@ End-to-End 리텐션 시스템 구축:
 | 이탈 예측 모델 학습 | `python src/main.py --mode train` | `models/`, `results/shap_summary.png` |
 | Uplift 세그먼테이션 | `python src/main.py --mode uplift` | `results/uplift_segments.csv` (4분면) |
 | 예산 최적화 | `python src/main.py --mode optimize --budget 50000000` | `results/optimization_result.csv`, ROI 분석 |
+| 모델 모니터링 | `python src/main.py --mode monitor` | `results/monitoring_report.json` (PSI / KS Drift) |
 | 통합 대시보드 | `docker compose up` | http://localhost:8501 |
 
 ### 학습 포인트
@@ -61,11 +61,11 @@ End-to-End 리텐션 시스템 구축:
 
 | 기능 | 세부 요구사항 | 상태 | 담당 |
 |------|-------------|------|------|
-| 고객 행동 시뮬레이터 | 6 페르소나, 8 이벤트(page_view/search/add_to_cart/remove_from_cart/purchase/coupon_use/review/cs_contact), full: 20,000명/365일 · small: 5,000명/180일, T/C 각 10,000명, 이탈률 15~25% | ✅ 완료 | 형준 |
+| 고객 행동 시뮬레이터 | 6 페르소나, 8 이벤트(page_view/search/add_to_cart/remove_from_cart/purchase/coupon_use/review/cs_contact), full: 20,000명/450일 · small: 5,000명/180일, T/C 각 10,000명, 이탈률 15~25% | ✅ 완료 | 형준 |
 | 시뮬레이터 검증 | 이탈률 범위(15~25%), T/C 비율(50:50), 8개 이벤트 타입, 행동 감쇠 비율(0.4~0.7), 코호트 멱함수 R²(>0.85) | ✅ 완료 | 형준 |
 | 코호트 분석 | M1/M3/M6/M12 리텐션 + Power-law 회귀 | ✅ 완료 | 형준 |
 | 고객 여정 퍼널 분석 | 가입→첫구매→재구매→충성→이탈 5단계 퍼널, 코호트별 전환율 분석, `src/analysis/cohort.py` `build_journey_funnel()` | ✅ 완료 | 현우 |
-| Docker Compose 인프라 | `docker compose up` 한 번으로 7개 서비스 자동 실행: simulator → feature/uplift 병렬 → train/optimize → dashboard | ✅ 완료 | 형준 |
+| Docker Compose 인프라 | `docker compose up` 한 번으로 8개 서비스 자동 실행: simulator → feature/uplift 병렬 → train/optimize/monitoring → dashboard | ✅ 완료 | 형준 |
 | 피처 엔지니어링 | 44개 피처: RFM(12개) + 행동변화율(7개) + 세션(6개) + 시퀀스(5개) + 시간대/여정, 결측·이상치 처리, feature_store.parquet | ✅ 완료 | 현우 |
 | ML 이탈 예측 | XGBoost / LightGBM 2종, AUC-ROC 0.78+, 5-Fold CV, SMOTE, SHAP 상위 10개 피처, Optuna 하이퍼파라미터 튜닝 | ✅ 완료 | 한솔 |
 | DL 시퀀스 모델 | LSTM + 패딩/임베딩 + Early Stopping + ML/DL 앙상블, 동일 test set 비교 | ✅ 완료 | 한솔 |
@@ -74,8 +74,8 @@ End-to-End 리텐션 시스템 구축:
 | 6+ 세그먼테이션 | 이탈확률 × Uplift × CLV 조합, priority score 산출 | ✅ 완료 | 한나 |
 | 예산 최적화 | 목적함수 Maximize Σ(Uplift_i × CLV_i × Action_i), 제약 Σ(Cost_i × Action_i) ≤ Budget, What-if 50%/100%/200% | ✅ 완료 | 한나 |
 | A/B 테스트 | Power Analysis(power ≥ 0.8), Chi-square/Z-test, p-value, 95% CI, α=0.05 | ✅ 완료 | 한나 |
-| 통합 대시보드 | Streamlit :8501, 이탈현황 / 코호트 / Uplift분포 / CLV / 예산 / A·B / Top-N 우선순위 고객 | 🚧 개발 중 | 지웅 |
-| 모델 모니터링 | PSI / KS-test 기반 Drift 감지, 성능 추적, 알림 | 🚧 개발 중 | 지웅 |
+| 통합 대시보드 | Streamlit :8501, 이탈현황 / 코호트 / Uplift분포 / CLV / 예산 / A·B / Top-N 우선순위 고객 | ✅ 완료 | 지웅 |
+| 모델 모니터링 | PSI / KS-test 기반 Data Drift 감지 + 경보, `--mode monitor` → `monitoring_report.json` (`src/monitoring/`) | ✅ 완료 | 지웅 |
 
 ---
 
@@ -84,7 +84,7 @@ End-to-End 리텐션 시스템 구축:
 ```mermaid
 flowchart TB
     subgraph Data["데이터 계층"]
-        SIM["고객 행동 시뮬레이터\n6 페르소나 / 8 이벤트\nfull: 20,000명/365일\nsmall: 5,000명/180일"]
+        SIM["고객 행동 시뮬레이터\n6 페르소나 / 8 이벤트\nfull: 20,000명/450일\nsmall: 5,000명/180일"]
         VAL["시뮬레이터 검증\n이탈률 / 처치효과 / 이벤트 타입"]
         RAW[("data/raw/\ncustomers.csv\nevents.csv")]
         COHORT["코호트/여정 분석\nM1/M3/M6/M12 리텐션 + Power-law 회귀\n가입→첫구매→재구매→충성→이탈\nbuild_journey_funnel()"]
@@ -133,19 +133,18 @@ flowchart TB
         MON["모델 모니터링\nPSI / KS-test / Drift 알림"]
         REPORT[("results/\nCSV / PNG / JSON")]
         OPT & AB & SEG --> DASH
-        ENS --> MON
+        STORE --> MON
         DASH & MON --> REPORT
     end
 
     classDef done fill:#d4edda,stroke:#28a745
     classDef wip fill:#fff3cd,stroke:#ffc107
     classDef code fill:#cce5ff,stroke:#004085
-    class SIM,VAL,RAW,STORE,COHORT done
-    class RFM,SES,BEH,SEQ code
-    class ML,DL,ENS,SHAP,UPLIFT,CLV,SEG,OPT,AB,DASH,MON,REPORT wip
+    class SIM,VAL,RAW,COHORT,ML,DL,ENS,SHAP,UPLIFT,CLV,SEG,OPT,AB,DASH,MON,REPORT done
+    class RFM,SES,BEH,SEQ,STORE code
 ```
 
-> 범례: 초록=완료, 파랑=코드 완료(미실행), 노랑=개발 중
+> 범례: 초록=완료(실행·산출물 확인), 파랑=코드 완료(실행 시 산출물 생성)
 
 ---
 
@@ -211,15 +210,17 @@ customer-churn-retention-system/
 │   │   ├── cohort.py              # 코호트 리텐션 분석
 │   │   ├── churn_pattern.py       # 이탈 패턴 분석
 │   │   └── ab_test.py             # A/B 테스트 검정
-│   ├── monitoring/                # 🚧 PSI / KS-test 모니터링
+│   ├── monitoring/
+│   │   ├── drift_detector.py      # PSI / KS-test 드리프트 감지 (DriftDetector)
+│   │   └── run_monitoring.py      # 모니터링 파이프라인 러너 (코호트 분할 → 리포트)
 │   └── dashboard/
-│       └── app.py                 # 🚧 Streamlit 대시보드
+│       └── app.py                 # Streamlit 대시보드 (5개 패널)
 ├── docs/
 │   ├── feature_dictionary.md      # 피처 정의서 (44개)
 │   ├── uplift_analysis.md         # Uplift 분석 결과
 │   ├── retention_strategy.md      # 6세그먼트 리텐션 전략
 │   ├── ab_test_report.md          # Power 분석 + p-value 검정 결과
-│   └── model_report.md            # 🚧 ML/DL 비교 리포트
+│   └── model_report.md            # ML/DL 비교 리포트
 ├── results/                       # 분석 산출물 (CSV / PNG / JSON)
 ├── models/                        # 학습된 모델 파일
 ├── docker-compose.yml
@@ -255,7 +256,7 @@ docker compose up --build
 
 대시보드: http://localhost:8501
 
-> `docker compose up` 한 번으로 7개 서비스가 자동 실행됩니다 — simulator 완료 후 feature/uplift 병렬 시작, train+optimize 완료 후 dashboard 시작.
+> `docker compose up` 한 번으로 8개 서비스가 자동 실행됩니다 — simulator 완료 후 feature/uplift 병렬 시작, train+optimize+monitoring 완료 후 dashboard 시작.
 
 ### 방법 2: 로컬 개발
 
@@ -286,7 +287,7 @@ python src/main.py --mode simulate --sim-mode small
 # Small 모드: 5,000명 / 180일 (개발 / 테스트용)
 python src/main.py --mode simulate --sim-mode small
 
-# Full 모드: 20,000명 / 365일 (운영용)
+# Full 모드: 20,000명 / 450일 (운영용)
 python src/main.py --mode simulate --sim-mode full
 ```
 
@@ -295,7 +296,7 @@ python src/main.py --mode simulate --sim-mode full
 | 파라미터 | small | full |
 |---------|-------|------|
 | 고객 수 | 5,000명 | 20,000명 |
-| 기간 | 180일 (6개월) | 365일 (12개월) |
+| 기간 | 180일 (6개월) | 450일 (약 15개월) |
 | 처치/대조군 | 각 50% (2,500명) | 각 50% (10,000명) |
 | 목표 이탈률 | 15~25% | 15~25% |
 | 페르소나 | 6종 | 6종 |
@@ -318,6 +319,8 @@ python src/main.py --mode feature
 | 세션 | 6개 | avg_session_length, bounce_rate, search_to_purchase_rate |
 | 시퀀스/여정 | 5개+ | seq_entropy, journey_stage_id, behavior_cluster_id |
 | 시간대 | 7개 | weekend_purchase_ratio, month_end_activity_ratio 등 |
+
+> **피처 수 44 vs 모델 학습 41**: 피처 엔지니어링은 **44개**를 산출하지만, 모델 학습 시 `data_loader`가 누설·비수치 컬럼 3개(`journey_stage`, `journey_stage_id`, `active_day_span`)를 자동 제외하여 **41차원**으로 학습한다. 두 숫자 모두 정상이다 (44=산출 / 41=학습 투입).
 
 ### 3) 이탈 예측 모델 학습 ✅ 완료
 
@@ -363,7 +366,19 @@ python src/main.py --mode optimize --budget 50000000
 
 **산출물:** `results/optimization_result.csv`, `results/whatif_analysis.csv`, `results/budget_allocation.png`
 
-### 6) 통합 대시보드 🚧 개발 중
+### 6) 모델 모니터링 ✅ 완료
+
+```bash
+python src/main.py --mode monitor
+```
+
+**내부 동작:** 피처 스토어를 가입일 중앙값 기준 초기 코호트(reference) → 최근 코호트(current)로 분할 → 피처별 PSI / KS-test 계산 → 임계치(PSI>0.2, KS p<0.05) 초과 시 경보 생성
+
+**산출물:** `results/monitoring_report.json` (피처별 PSI·KS 지표 + 드리프트 경보 + 분할 컨텍스트)
+
+> 합성 데이터에는 자연적인 운영-시점 분포가 없어 가입 코호트 분할을 드리프트 프록시로 사용합니다. 운영 환경에서는 reference를 학습 시점 분포로, current를 최신 추론 배치로 교체하면 동일 로직이 그대로 동작합니다.
+
+### 7) 통합 대시보드 ✅ 완료
 
 ```bash
 # Docker (전체 파이프라인과 함께 자동 실행)
@@ -375,13 +390,12 @@ streamlit run src/dashboard/app.py
 
 **브라우저:** http://localhost:8501
 
-**대시보드 패널:**
-- 이탈 위험 현황 (Total / At Risk / AUC)
-- 코호트 리텐션 분석 (M1/M3/M6/M12)
-- Uplift 세그먼트 분포
-- 예산 최적화 시뮬레이션 (ROI)
-- 리텐션 대상 고객 Top-N (우선순위순)
-- A/B 테스트 결과 요약
+**대시보드 패널 (5개 메뉴):**
+- **Overview** — 이탈 위험 현황(Total / At Risk / AUC), 리텐션 우선순위 Top 10, 예상 ROI, 세그먼트 분포
+- **Cohort** — 코호트 리텐션 히트맵 + 리텐션 곡선 (M1/M3/M6/M12)
+- **Uplift & CLV** — Uplift 세그먼트 비중, CLV 분포 / 고가치 고객 비중
+- **Budget** — 예산 배분 상세 + 예상 ROI, A/B 테스트 결과 요약
+- **Monitoring** — Data Drift 탐지(PSI / KS-test) 지표 테이블 + Alerts 이력 (`monitoring_report.json` 기반)
 
 ---
 
@@ -395,7 +409,7 @@ cp .env.example .env
 
 | 변수 | 설명 | 가능한 값 | 기본값 |
 |------|------|-----------|--------|
-| `APP_MODE` | 실행 모드 | `simulate` / `feature` / `train` / `uplift` / `optimize` | `simulate` |
+| `APP_MODE` | 실행 모드 | `simulate` / `feature` / `train` / `uplift` / `optimize` / `monitor` | `simulate` |
 | `SIM_MODE` | 시뮬레이션 규모 | `full` / `small` | `full` |
 | `BUDGET` | 마케팅 예산 (KRW) | 숫자 (예: `50000000`) | 미설정 (기본 5천만원) |
 
@@ -420,9 +434,11 @@ python src/main.py --mode simulate --sim-mode full
     │
     ├──► [feature]   python src/main.py --mode feature         (병렬)
     │        │  data/processed/feature_store.parquet
-    │        ▼
-    │    [train]     python src/main.py --mode train ──────────┐
-    │                                                          ▼
+    │        ├──► [train]      python src/main.py --mode train ─┐
+    │        │                                                  ▼
+    │        └──► [monitoring] python src/main.py --mode monitor│
+    │                          results/monitoring_report.json   │
+    │                                                           ▼
     └──► [uplift]    python src/main.py --mode uplift   (병렬) [dashboard]
              │  results/uplift_segments.csv                    :8501
              ▼                                                 ▲
@@ -437,6 +453,7 @@ flowchart LR
     FEAT["feature"]
     UPLIFT["uplift"]
     TRAIN["train"]
+    MON["monitoring"]
     OPT["optimize"]
     DASH["dashboard\n:8501"]
 
@@ -444,9 +461,11 @@ flowchart LR
     SIM --> FEAT
     SIM --> UPLIFT
     FEAT --> TRAIN
+    FEAT --> MON
     UPLIFT --> OPT
     TRAIN --> DASH
     OPT --> DASH
+    MON --> DASH
 ```
 
 ### 데이터 흐름 (파일 기준)
@@ -458,6 +477,8 @@ flowchart LR
 [피처 엔지니어링]                          ← config/model_config.yaml
     │
     ▼  data/processed/feature_store.parquet
+    ├──► [모델 모니터링]  feature_store + customers 가입 코호트 분할 → results/monitoring_report.json
+    │
 [ML/DL 모델 학습]
     │
     ▼  models/{xgboost,lightgbm}_v1.joblib, models/lstm_v1.pt
@@ -479,13 +500,13 @@ flowchart LR
 | 경로 | 설명 | 상태 |
 |------|------|------|
 | `docs/feature_dictionary.md` | 피처 정의서 (44개 피처 명세) | ✅ |
-| `docs/model_report.md` | ML/DL/앙상블 비교 리포트 | 🚧 |
+| `docs/model_report.md` | ML/DL/앙상블 비교 리포트 | ✅ |
 | `docs/retention_strategy.md` | 6세그먼트 리텐션 전략 + 목적함수 수식 | ✅ |
 | `docs/ab_test_report.md` | Power 분석 + p-value 검정 결과 | ✅ |
 | `docs/uplift_analysis.md` | Qini Curve + 4분면 분석 해설 | ✅ |
 | `results/clv_predictions.csv` | 고객별 CLV 예측값 (12개월, 상위 20%) | ✅ |
 | `results/segments_6plus.csv` | 6+ 세그먼트 최종 분류 + priority score | ✅ |
-| `results/monitoring_report.json` | PSI / KS-test 결과 + 임계치 | 🚧 |
+| `results/monitoring_report.json` | PSI / KS-test 결과 + 임계치 | ✅ |
 | `results/shap_summary.png` | SHAP 상위 10개 피처 중요도 | ✅ |
 
 ### 전체 산출물
@@ -513,12 +534,12 @@ flowchart LR
 | `results/churn_pattern_top5.csv` | 이탈 패턴 Top5 전환 경로 | ✅ |
 | `results/churn_pattern_summary.csv` | 이탈 패턴 요약 통계 | ✅ |
 | `results/segment_bubble.png` | 세그먼트 버블 차트 (Uplift × CLV) | ✅ |
-| `results/monitoring_report.json` | 모델 드리프트 모니터링 리포트 | 🚧 |
+| `results/monitoring_report.json` | 모델 드리프트 모니터링 리포트 | ✅ |
 | `docs/feature_dictionary.md` | 피처 정의서 | ✅ |
 | `docs/uplift_analysis.md` | Uplift 분석 해설 | ✅ |
 | `docs/retention_strategy.md` | 6세그먼트 리텐션 전략 | ✅ |
 | `docs/ab_test_report.md` | A/B 테스트 분석 리포트 | ✅ |
-| `docs/model_report.md` | ML/DL 비교 리포트 | 🚧 |
+| `docs/model_report.md` | ML/DL 비교 리포트 | ✅ |
 
 > 🟡 = 코드 완료 (실행 시 생성). data/processed/는 .gitignore 대상.
 
@@ -533,17 +554,6 @@ Budget Optimization & A/B Test
 ![dashboard](docs/screenshots/4.png)
 Data & Model Monitoring
 ![dashboard](docs/screenshots/5.png)
----
-
-## 보너스 과제
-
-| # | 과제 | 설명 | 상태 |
-|---|------|------|------|
-| 보너스 1 | 실시간 이탈 스코어링 | Kafka / Redis Streams 기반 스트리밍 파이프라인 | 📋 예정 |
-| 보너스 2 | Survival Analysis | Cox Proportional Hazard 또는 Survival Random Forest 기반 이탈 시점 예측 | 📋 예정 |
-| 보너스 3 | 개인화 추천 연동 | 이탈 위험 고객 대상 맞춤 상품 추천 모듈 | 📋 예정 |
-| 보너스 4 | MLflow 실험 관리 | 하이퍼파라미터 / 모델 버전 / 실험 결과 추적 | 📋 예정 |
-
 ---
 
 ## 팀 정보
@@ -577,4 +587,4 @@ Data & Model Monitoring
 
 ---
 
-**Last Updated:** 2026-06-04
+**Last Updated:** 2026-06-14
