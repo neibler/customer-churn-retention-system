@@ -6,8 +6,8 @@ ensemble_proba = w_ml * ml_proba + w_dl * dl_proba  (w_ml + w_dl = 1)
 - "fixed":    config 의 weight_ml 그대로
 - "auto_auc": 두 모델의 val AUC 비례 → w_ml = ml_auc / (ml_auc + dl_auc)
 
-Stacking 미채택: meta learner 학습용 추가 holdout 필요 + 5k 규모에선
-weighted_avg 와 차이 미미 (Kumar & Kumar 2026).
+Stacking 미채택: meta learner 학습용 추가 holdout 이 필요해 (Wolpert 1992)
+5k 규모에선 학습 데이터 추가 소비 대비 이득이 제한적 (Dietterich 2000).
 """
 
 from __future__ import annotations
@@ -42,8 +42,10 @@ def _safe_roc_auc(y_true: np.ndarray, y_score: np.ndarray, label: str) -> float:
 
 def _safe_pr_auc(y_true: np.ndarray, y_score: np.ndarray, label: str) -> float:
     if np.unique(y_true).size < 2:
-        logger.warning("[Ensemble] %s 평가 y_true 단일 클래스 → PR-AUC fallback 0.0", label)
-        return 0.0
+        # dl_trainer 와 동일: 단일 클래스 폴백을 sklearn 과 일치 (전부 양성→1.0, 음성→0.0)
+        fallback = float(np.mean(y_true)) if y_true.size else 0.0
+        logger.warning("[Ensemble] %s 평가 y_true 단일 클래스 → PR-AUC fallback %.1f", label, fallback)
+        return fallback
     return float(average_precision_score(y_true, y_score))
 
 
