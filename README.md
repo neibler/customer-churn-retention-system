@@ -61,7 +61,7 @@ End-to-End 리텐션 시스템 구축:
 
 | 기능 | 세부 요구사항 | 상태 | 담당 |
 |------|-------------|------|------|
-| 고객 행동 시뮬레이터 | 6 페르소나, 8 이벤트(page_view/search/add_to_cart/remove_from_cart/purchase/coupon_use/review/cs_contact), full: 20,000명/365일 · small: 5,000명/180일, T/C 각 10,000명, 이탈률 15~25% | ✅ 완료 | 형준 |
+| 고객 행동 시뮬레이터 | 6 페르소나, 8 이벤트(page_view/search/add_to_cart/remove_from_cart/purchase/coupon_use/review/cs_contact), full: 20,000명/450일 · small: 5,000명/180일, T/C 각 10,000명, 이탈률 15~25% | ✅ 완료 | 형준 |
 | 시뮬레이터 검증 | 이탈률 범위(15~25%), T/C 비율(50:50), 8개 이벤트 타입, 행동 감쇠 비율(0.4~0.7), 코호트 멱함수 R²(>0.85) | ✅ 완료 | 형준 |
 | 코호트 분석 | M1/M3/M6/M12 리텐션 + Power-law 회귀 | ✅ 완료 | 형준 |
 | 고객 여정 퍼널 분석 | 가입→첫구매→재구매→충성→이탈 5단계 퍼널, 코호트별 전환율 분석, `src/analysis/cohort.py` `build_journey_funnel()` | ✅ 완료 | 현우 |
@@ -84,7 +84,7 @@ End-to-End 리텐션 시스템 구축:
 ```mermaid
 flowchart TB
     subgraph Data["데이터 계층"]
-        SIM["고객 행동 시뮬레이터\n6 페르소나 / 8 이벤트\nfull: 20,000명/365일\nsmall: 5,000명/180일"]
+        SIM["고객 행동 시뮬레이터\n6 페르소나 / 8 이벤트\nfull: 20,000명/450일\nsmall: 5,000명/180일"]
         VAL["시뮬레이터 검증\n이탈률 / 처치효과 / 이벤트 타입"]
         RAW[("data/raw/\ncustomers.csv\nevents.csv")]
         COHORT["코호트/여정 분석\nM1/M3/M6/M12 리텐션 + Power-law 회귀\n가입→첫구매→재구매→충성→이탈\nbuild_journey_funnel()"]
@@ -287,7 +287,7 @@ python src/main.py --mode simulate --sim-mode small
 # Small 모드: 5,000명 / 180일 (개발 / 테스트용)
 python src/main.py --mode simulate --sim-mode small
 
-# Full 모드: 20,000명 / 365일 (운영용)
+# Full 모드: 20,000명 / 450일 (운영용)
 python src/main.py --mode simulate --sim-mode full
 ```
 
@@ -296,7 +296,7 @@ python src/main.py --mode simulate --sim-mode full
 | 파라미터 | small | full |
 |---------|-------|------|
 | 고객 수 | 5,000명 | 20,000명 |
-| 기간 | 180일 (6개월) | 365일 (12개월) |
+| 기간 | 180일 (6개월) | 450일 (약 15개월) |
 | 처치/대조군 | 각 50% (2,500명) | 각 50% (10,000명) |
 | 목표 이탈률 | 15~25% | 15~25% |
 | 페르소나 | 6종 | 6종 |
