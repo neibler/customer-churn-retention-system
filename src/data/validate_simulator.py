@@ -156,9 +156,6 @@ def compute_cohort_retention(events: pd.DataFrame, customers: pd.DataFrame) -> p
     signup_date 이전에 이탈한 고객이 코호트 분모에 포함된다.
     이들은 M1 창에 이벤트 없음 → 미유지로 집계되어 초기 코호트 리텐션이
     낮게 측정되지만, 가입 후 미활성화 비율로 해석 가능하다.
-
-    Returns:
-        DataFrame: index=cohort_month(str), columns=[M1, M3, M6, M12]
     """
     cust = customers.copy()
     if "signup_date" in cust.columns:
@@ -203,13 +200,7 @@ def compute_cohort_retention(events: pd.DataFrame, customers: pd.DataFrame) -> p
 
 
 def fit_power_law(months: list, retention: list) -> tuple:
-    """y = a * x^b 멱함수 회귀.
-
-    NaN 제거 후 유효 포인트 2개 이상이어야 실행.
-
-    Returns:
-        (a, b, r_squared)
-    """
+    """y = a * x^b 멱함수 회귀. 유효 포인트 2개 미만이면 (nan, nan, nan)."""
     valid = [
         (m, r)
         for m, r in zip(months, retention)

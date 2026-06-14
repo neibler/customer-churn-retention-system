@@ -1,0 +1,61 @@
+flowchart TB
+    subgraph Data["데이터 계층"]
+        SIM["고객 행동 시뮬레이터\n6 페르소나 / 8 이벤트\nfull: 20,000명/450일\nsmall: 5,000명/180일"]
+        VAL["시뮬레이터 검증\n이탈률 / 처치효과 / 이벤트 타입"]
+        RAW[("data/raw/\ncustomers.csv\nevents.csv")]
+        COHORT["코호트/여정 분석\nM1/M3/M6/M12 리텐션 + Power-law 회귀\n가입→첫구매→재구매→충성→이탈\nbuild_journey_funnel()"]
+        SIM --> RAW --> VAL
+        RAW --> COHORT
+    end
+
+    subgraph Feature["피처 엔지니어링"]
+        RFM["RFM 피처\n(recency / frequency / monetary)"]
+        SES["세션 피처\n(방문 패턴 / 이벤트 구성)"]
+        BEH["행동 변화율 피처\n(기간별 증감률)"]
+        SEQ["시퀀스 피처\n(이벤트 순서 / 여정 단계)"]
+        STORE[("data/processed/\nfeature_store.parquet")]
+        RAW --> RFM & SES & BEH & SEQ
+        RFM & SES & BEH & SEQ --> STORE
+    end
+
+    subgraph Model["모델링"]
+        ML["ML 모델\nXGBoost / LightGBM"]
+        DL["DL 모델\nLSTM + Early Stopping"]
+        ENS["앙상블\nML + DL 가중평균"]
+        SHAP["SHAP 해석\n상위 10개 피처 중요도"]
+        STORE --> ML & DL
+        ML & DL --> ENS
+        ML --> SHAP
+    end
+
+    subgraph Causal["인과추론 & 가치평가"]
+        UPLIFT["Uplift Modeling\nT-Learner / X-Learner\nPersuadables / Sleeping Dogs"]
+        CLV["CLV 예측\nBG/NBD + Gamma-Gamma\n상위 20% 고가치"]
+        SEG["6+ 세그먼트\nUplift × CLV × 이탈확률\npriority score"]
+        ENS --> UPLIFT
+        RAW --> CLV
+        UPLIFT & CLV --> SEG
+    end
+
+    subgraph Decision["의사결정"]
+        OPT["예산 최적화\nMaximize Σ(Uplift×CLV×Action)\nWhat-if 50%/100%/200%"]
+        AB["A/B 테스트\nPower Analysis + Chi-square\nα=0.05, power≥0.8"]
+        SEG --> OPT
+        OPT --> AB
+    end
+
+    subgraph Output["산출물"]
+        DASH["Streamlit 대시보드\n:8501"]
+        MON["모델 모니터링\nPSI / KS-test / Drift 알림"]
+        REPORT[("results/\nCSV / PNG / JSON")]
+        OPT & AB & SEG --> DASH
+        ENS --> MON
+        DASH & MON --> REPORT
+    end
+
+    classDef done fill:#d4edda,stroke:#28a745
+    classDef wip fill:#fff3cd,stroke:#ffc107
+    classDef code fill:#cce5ff,stroke:#004085
+    class SIM,VAL,RAW,STORE,COHORT done
+    class RFM,SES,BEH,SEQ code
+    class ML,DL,ENS,SHAP,UPLIFT,CLV,SEG,OPT,AB,DASH,MON,REPORT wip

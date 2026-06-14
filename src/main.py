@@ -9,6 +9,7 @@ Usage
     python src/main.py --mode train           # train model (requires feature store)
     python src/main.py --mode uplift          # uplift modeling
     python src/main.py --mode optimize --budget 1000000
+    python src/main.py --mode monitor         # data drift monitoring (PSI / KS-test)
 """
 
 from __future__ import annotations
@@ -107,11 +108,35 @@ def run_optimize(budget: float | None) -> None:
         raise
 
 
+def run_monitor() -> None:
+    """Run data drift monitoring (PSI / KS-test) → results/monitoring_report.json.
+
+    Requires feature_store.parquet. 없으면 train 모드와 동일하게 피처 생성을 먼저 실행한다.
+    """
+    if not FEATURE_STORE_PATH.exists():
+        logger.warning(
+            "feature_store.parquet이 없습니다. 먼저 --mode feature를 실행해주세요. "
+            "자동으로 피처 생성을 실행합니다..."
+        )
+        run_feature()
+
+    from monitoring.run_monitoring import run_drift_monitoring
+
+    report, path = run_drift_monitoring()
+    split = report.get("split", {})
+    logger.info(
+        "[Monitor] 완료: features=%d, alerts=%d → %s",
+        split.get("n_features_checked", 0),
+        report.get("n_alerts", 0),
+        path,
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Customer churn retention system entrypoint")
     parser.add_argument(
         "--mode",
-        choices=["simulate", "feature", "train", "uplift", "optimize"],
+        choices=["simulate", "feature", "train", "uplift", "optimize", "monitor"],
         default=os.getenv("APP_MODE", "simulate"),
         help="Execution mode (default: simulate, env: APP_MODE)",
     )
@@ -145,6 +170,8 @@ def main() -> None:
         run_uplift()
     elif args.mode == "optimize":
         run_optimize(budget=args.budget)
+    elif args.mode == "monitor":
+        run_monitor()
 
 
 if __name__ == "__main__":

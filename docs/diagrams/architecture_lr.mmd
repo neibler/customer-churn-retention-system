@@ -1,0 +1,16 @@
+flowchart LR
+    SIM["simulator"]
+    VAL["validator"]
+    FEAT["feature"]
+    UPLIFT["uplift"]
+    TRAIN["train"]
+    OPT["optimize"]
+    DASH["dashboard\n:8501"]
+
+    SIM --> VAL
+    SIM --> FEAT
+    SIM --> UPLIFT
+    FEAT --> TRAIN
+    UPLIFT --> OPT
+    TRAIN --> DASH
+    OPT --> DASH

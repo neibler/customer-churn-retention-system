@@ -24,7 +24,6 @@ def load_config(config_path: str | Path) -> dict[str, Any]:
 
 
 def assign_personas(n_customers: int, personas: dict, rng: np.random.Generator) -> list[str]:
-    """Assign a persona key to each customer according to persona weights."""
     keys = list(personas.keys())
     weights = [personas[k]["weight"] for k in keys]
     total = sum(weights)
@@ -33,7 +32,6 @@ def assign_personas(n_customers: int, personas: dict, rng: np.random.Generator) 
 
 
 def build_customers(n_customers: int, config: dict, rng: np.random.Generator) -> pd.DataFrame:
-    """Create customer master records with persona assignments and group labels."""
     personas_cfg = config["personas"]
     persona_keys = assign_personas(n_customers, personas_cfg, rng)
 
@@ -117,7 +115,6 @@ def should_trigger_coupon(
     last_coupon_day: int | None,
     marketing_cfg: dict,
 ) -> bool:
-    """Return True if a coupon should be sent to this customer today."""
     coupon_cfg = marketing_cfg["interventions"]["coupon"]
     if not coupon_cfg["enabled"]:
         return False
@@ -135,7 +132,6 @@ def should_trigger_push(
     last_push_day: int | None,
     marketing_cfg: dict,
 ) -> bool:
-    """Return True if a push notification should be sent today."""
     push_cfg = marketing_cfg["interventions"]["push_notification"]
     if not push_cfg["enabled"]:
         return False
@@ -189,19 +185,9 @@ def compute_decay_factor(
     decay_window: int = 30,
     min_factor: float = 0.5,
 ) -> float:
-    """이탈 예정일까지 남은 기간에 따라 행동 감쇠 계수 계산.
+    """이탈 예정일 D-decay_window부터 선형 감쇠, 당일 min_factor까지 하강.
 
-    이탈 예정일 decay_window일 전부터 선형 감쇠 시작.
-    이탈 당일에는 min_factor 수준까지 감소.
-
-    Args:
-        current_day: 현재 시뮬레이션 날짜 (0-based)
-        scheduled_churn_day: Phase 1에서 샘플링된 이탈 예정일
-        decay_window: 감쇠 시작 시점 (이탈 D-N일)
-        min_factor: 이탈 당일 최소 행동 비율 (0.5 = 평소의 50%)
-
-    Returns:
-        float: 1.0(변화없음) ~ min_factor(최대감쇠) 사이 값
+    예정일이 없거나 이미 지난 경우(생존)는 1.0.
     """
     if scheduled_churn_day is None:
         return 1.0
