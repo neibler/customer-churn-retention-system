@@ -6,8 +6,8 @@
 |----------------|-------------------------------|------------------------------------|
 | max_f1         | argmax F1(t)                  | 균형형 (default)                   |
 | max_youden     | argmax (TPR - FPR)            | 진단 의학 표준                     |
-| precision_at   | min t s.t. P(t) >= target     | 마케팅 비용 절감 우선 (FP 비용 ↑)  |
-| recall_at      | max t s.t. R(t) >= target     | 이탈 누락 회피 우선 (FN 비용 ↑)    |
+| precision_at   | P(t) >= target 중 recall 최대 | 마케팅 비용 절감 우선 (FP 비용 ↑)  |
+| recall_at      | R(t) >= target 중 precision 최대 | 이탈 누락 회피 우선 (FN 비용 ↑)   |
 """
 
 from __future__ import annotations
@@ -113,6 +113,7 @@ def find_best_threshold(
             result.notes = f"fallback from recall_at(target={recall_target}); target_unreachable"
             return result
 
+        # invalid 인덱스 마스킹 후 precision 최대화
         best_idx = int(np.argmax(precisions[:-1] * valid))
         thr = float(thrs[best_idx])
         p, r, f1 = _eval_at(y_true, y_proba, thr)

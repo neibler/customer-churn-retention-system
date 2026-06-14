@@ -1,4 +1,4 @@
-"""ML 트레이너: XGBoost + LightGBM.
+"""ML 트레이너: XGBoost + LightGBM .
 
 기능:
 - ML 2종 학습 (default_params 또는 Optuna best_params)
@@ -183,7 +183,10 @@ def cross_validate_model(
         pred = (proba >= 0.5).astype(int)
 
         # XGB: best_iteration, LGBM: best_iteration_ (attribute 이름 다름)
-        best_iter = getattr(model, "best_iteration", None) or getattr(model, "best_iteration_", None)
+        # or 대신 is None 분기 — best_iteration=0 (첫 라운드 최적) 도 유효값으로 보존
+        best_iter = getattr(model, "best_iteration", None)
+        if best_iter is None:
+            best_iter = getattr(model, "best_iteration_", None)
 
         fold_res = CVFoldResult(
             fold=fold_idx,
@@ -253,7 +256,7 @@ def save_model(model: Any, path: str | Path) -> None:
 
     joblib 사용 이유: pickle.load 의 임의 코드 실행 위험(S301) 회피 + sklearn
     생태계 표준. 내부적으로 pickle 을 쓰지만 정적 분석 도구가 예외 처리.
-    **신뢰할 수 없는 출처의 모델 파일은 절대 로드하지 말 것.**
+    신뢰할 수 없는 출처의 모델 파일은 절대 로드하지 말 것.
     """
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
