@@ -103,6 +103,13 @@ def run_drift_monitoring(
     # 코호트 분할 기준(signup_date)은 feature_store 에 없으므로 customers.csv 에서 조인.
     customers = pd.read_csv(customers_path, usecols=["customer_id", "signup_date"])
     customers["signup_date"] = pd.to_datetime(customers["signup_date"], errors="coerce")
+
+    # customer_id 중복 시 left join 이 feature 행을 복제해 PSI/KS 를 왜곡 → 사전 차단.
+    n_dup = int(customers["customer_id"].duplicated().sum())
+    if n_dup:
+        logger.warning("[Monitor] customers.csv customer_id 중복 %d건 → 첫 행만 유지", n_dup)
+        customers = customers.drop_duplicates(subset="customer_id", keep="first")
+
     fs = fs.merge(customers, on="customer_id", how="left")
     fs = fs.dropna(subset=["signup_date"])
 
@@ -125,6 +132,11 @@ def run_drift_monitoring(
         )
 
     feature_cols = _numeric_feature_cols(fs)
+    if not feature_cols:
+        raise ValueError(
+            "드리프트 점검 대상 numeric 피처가 없습니다. "
+            "feature_store 의 컬럼/타입(또는 _NON_FEATURE_COLS 과대 제외)을 확인하세요."
+        )
 
     detector = DriftDetector(threshold_psi=threshold_psi, threshold_ks=threshold_ks)
     detector.run_monitoring(reference_df, current_df, feature_cols)

@@ -133,7 +133,7 @@ flowchart TB
         MON["모델 모니터링\nPSI / KS-test / Drift 알림"]
         REPORT[("results/\nCSV / PNG / JSON")]
         OPT & AB & SEG --> DASH
-        ENS --> MON
+        STORE --> MON
         DASH & MON --> REPORT
     end
 
@@ -477,7 +477,9 @@ flowchart LR
 [피처 엔지니어링]                          ← config/model_config.yaml
     │
     ▼  data/processed/feature_store.parquet
-[ML/DL 모델 학습]   ·   [모델 모니터링] → results/monitoring_report.json
+    ├──► [모델 모니터링]  feature_store + customers 가입 코호트 분할 → results/monitoring_report.json
+    │
+[ML/DL 모델 학습]
     │
     ▼  models/{xgboost,lightgbm}_v1.joblib, models/lstm_v1.pt
 [Uplift Modeling / CLV / 세그먼테이션]

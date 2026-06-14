@@ -49,7 +49,7 @@ flowchart TB
         MON["모델 모니터링\nPSI / KS-test / Drift 알림"]
         REPORT[("results/\nCSV / PNG / JSON")]
         OPT & AB & SEG --> DASH
-        ENS --> MON
+        STORE --> MON
         DASH & MON --> REPORT
     end
 
