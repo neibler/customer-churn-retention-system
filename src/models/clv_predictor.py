@@ -6,6 +6,7 @@ BG/NBD + Gamma-Gamma 모델(Lifetimes 라이브러리)로 향후 12개월 고객
 ------
 results/clv_predictions.csv : customer_id, predicted_clv, clv_percentile, is_high_value
 results/clv_distribution.png : CLV 히스토그램
+results/clv_validation.json : MAE/MAPE 검증 리포트
 
 Usage
 -----
@@ -16,6 +17,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import json
 import warnings
 from pathlib import Path
 
@@ -221,6 +223,20 @@ def validate_clv(
     return {"mae": round(mae, 2), "mape": round(mape, 4)}
 
 
+def save_validation_report(metrics: dict[str, float], output_path: Path) -> None:
+    """CLV 검증 결과(MAE/MAPE)를 JSON 파일로 저장 — 발표/보고서용 산출물."""
+    report = {
+        "prediction_months": PREDICTION_MONTHS,
+        "monthly_discount_rate": MONTHLY_DISCOUNT_RATE,
+        "high_value_percentile": HIGH_VALUE_PERCENTILE,
+        "mae": metrics["mae"],
+        "mape": metrics["mape"],
+    }
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(report, f, ensure_ascii=False, indent=2)
+    print(f"[CLV] 검증 리포트 저장: {output_path}")
+
+
 def plot_clv_distribution(clv_df: pd.DataFrame, output_path: Path) -> None:
     """CLV 분포 히스토그램 + 고가치 고객 경계선."""
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
@@ -309,6 +325,7 @@ def run_clv_pipeline(
     metrics = validate_clv(purchases, obs_end, summary, bgf, ggf)
     print(f"[CLV] MAE: {metrics['mae']:,}  MAPE: {metrics['mape']:.2%}" if not np.isnan(metrics['mae'])
           else "[CLV] 검증 데이터 부족")
+    save_validation_report(metrics, output_dir / "clv_validation.json")
 
     # 8. 요약 출력
     high_val = all_customers[all_customers["is_high_value"] == 1]

@@ -1,6 +1,7 @@
-"""6세그먼트 분류 & 우선순위 점수 — Task 2.20 (배한나).
+"""세그먼트 분류 & 우선순위 점수 — Task 2.20 (배한나).
 
-이탈 확률 × Uplift Score × CLV 기반 6세그먼트 분류.
+이탈 확률 × Uplift Score × CLV 기반 세그먼트 분류 (고/저가치 × Persuadables/
+Sure Things/Lost Causes 6종 + 신규고객 = 총 7종).
 uplift_segments.csv + clv_predictions.csv를 읽어 통합 결과 생성.
 
 산출물
@@ -40,6 +41,7 @@ SEGMENT_COLORS = {
     "고가치-Sure Things":  "#388E3C",
     "고가치-Lost Causes":  "#FF6F00",
     "저가치-Persuadables": "#1565C0",
+    "저가치-Sure Things":  "#90CAF9",
     "저가치-Lost Causes":  "#9E9E9E",
     "신규고객":            "#7B1FA2",
 }
@@ -49,8 +51,9 @@ SEGMENT_PRIORITY = {
     "고가치-Sure Things":  2,
     "고가치-Lost Causes":  3,
     "저가치-Persuadables": 4,
-    "저가치-Lost Causes":  5,
-    "신규고객":            6,
+    "저가치-Sure Things":  5,
+    "저가치-Lost Causes":  6,
+    "신규고객":            7,
 }
 
 
@@ -79,7 +82,7 @@ def load_inputs(output_dir: Path, data_dir: Path) -> tuple[pd.DataFrame, pd.Time
 
 
 def classify_6segment(df: pd.DataFrame, obs_end: pd.Timestamp | None = None) -> pd.Series:
-    """이탈 확률 × Uplift × CLV 기반 6세그먼트 분류.
+    """이탈 확률 × Uplift × CLV 기반 세그먼트 분류.
 
     분류 기준 (우선순위 순)
     ─────────────────────────────────────────────────────
@@ -88,7 +91,8 @@ def classify_6segment(df: pd.DataFrame, obs_end: pd.Timestamp | None = None) -> 
     3. 고가치-Sure Things : is_high_value=1 & 4분면=Sure Things  (유지 관리)
     4. 고가치-Lost Causes : is_high_value=1 & 4분면=Lost Causes  (심층 분석)
     5. 저가치-Persuadables: is_high_value=0 & 4분면=Persuadables (비용 효율 개입)
-    6. 저가치-Lost Causes : 나머지 이탈 위험 고객
+    6. 저가치-Sure Things : is_high_value=0 & 4분면=Sure Things  (저비용 유지)
+    7. 저가치-Lost Causes : 나머지 이탈 위험 고객
     ─────────────────────────────────────────────────────
     """
     # 관찰 기간 종료일 기준으로 신규고객 판별 (signup_date.max() 사용 시 편향 발생)
@@ -105,6 +109,7 @@ def classify_6segment(df: pd.DataFrame, obs_end: pd.Timestamp | None = None) -> 
 
     # 우선순위 역순으로 덮어씀 (마지막이 최우선)
     seg[is_lost & ~is_high]                    = "저가치-Lost Causes"
+    seg[is_sure_thing & ~is_high]              = "저가치-Sure Things"
     seg[is_persuadable & ~is_high]             = "저가치-Persuadables"
     seg[is_lost & is_high]                     = "고가치-Lost Causes"
     seg[is_sure_thing & is_high]               = "고가치-Sure Things"
