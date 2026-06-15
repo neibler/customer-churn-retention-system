@@ -169,7 +169,7 @@ SMOTE 의 `k_neighbors=5` 는 소수 클래스 샘플 수보다 작을 때 자�
 
 - `frequency` 가 압도적 1위 — T 이전 누적 구매 횟수가 가장 강한 잔존 신호로 작용. 구매 빈도가 높은 고객일수록 향후 45일 내 재구매 가능성도 높아 음의 SHAP 으로 이탈 확률을 낮추는 방향
 - **시퀀스 피처 3개 (`seq_purchase_position`, `seq_unique_event_types`, `seq_dominant_event_id`) 가 Top 7 안에 진입** — 순서 정보가 실제로 예측에 기여하고 있음을 SHAP 으로 확인. 이는 §7 의 LSTM 단독 우위 (0.819 > 0.788) 와 정합
-- `recency_days` 가 Top 10 에 없는 점에 주목. 이는 `recency_days = T − 마지막 구매일` 이 라벨 정의(45일 미구매)와 일부 결정론적 관계를 가지기 때문에, 시점 기반 환경에서 모델이 의존도를 자연스럽게 낮추고 `frequency` 등 다른 시그널을 선호한 결과로 해석된다
+- `recency_days` 가 Top 10 에 없는 점에 주목. 이는 `recency_days = T − 마지막 구매일` 이 eligible 필터로 분포가 압축되어 변별력이 감소하기 때문에, 시점 기반 환경에서 모델이 의존도를 자연스럽게 낮추고 `frequency` 등 다른 시그널을 선호한 결과로 해석된다
 
 ### 5.2 Local 해석 (3 케이스 자동 선정)
 
