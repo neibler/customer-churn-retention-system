@@ -14,6 +14,7 @@ import plotly.graph_objects as go
 try:
     from src.analysis.cohort import load_data, build_cohort_retention
     from src.uplift.segmentation import compute_segment_stats
+    from src.models.uplift import UPLIFT_THRESHOLD, CHURN_THRESHOLD
 except ImportError:
     # 실행 경로에 따라 임포트 에러 발생 시 처리
     import sys
@@ -21,6 +22,7 @@ except ImportError:
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
     from src.analysis.cohort import load_data, build_cohort_retention
     from src.uplift.segmentation import compute_segment_stats
+    from src.models.uplift import UPLIFT_THRESHOLD, CHURN_THRESHOLD
 
 st.set_page_config(page_title="Customer Churn & Retention Optimization Dashboard", layout="wide")
 
@@ -395,6 +397,40 @@ elif st.session_state.menu == "Uplift & CLV":
             st.metric("고가치 고객 비중 (Top 20%)", f"{high_value_pct:.1%}")
         else:
             st.info("CLV 예측 데이터가 없습니다.")
+
+    st.divider()
+    st.subheader("Uplift 4분면 분석 (Scatter Plot)")
+    if not segments_df.empty:
+        # 4분면 산점도 (Uplift Score vs Churn Probability)
+        fig_scatter = px.scatter(
+            segments_df, 
+            x="churn_prob_control", 
+            y="uplift_score",
+            color="segment",
+            hover_data=["customer_id"],
+            labels={
+                "churn_prob_control": "이탈 확률 (Base Risk)",
+                "uplift_score": "Uplift Score (Treatment Effect)",
+                "segment": "세그먼트"
+            },
+            title="고객별 이탈 위험 vs 마케팅 증분 효과"
+        )
+        # 4분면 가이드라인 추가
+        fig_scatter.add_hline(y=UPLIFT_THRESHOLD, line_dash="dash", line_color="gray")
+        fig_scatter.add_vline(x=CHURN_THRESHOLD, line_dash="dash", line_color="gray")
+        fig_scatter.add_hline(y=0, line_dash="dot", line_color="red", opacity=0.5)
+        
+        fig_scatter.update_layout(
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            font=dict(color="#8c8c8c"),
+            xaxis=dict(showgrid=True, gridcolor="#2a2a3a"),
+            yaxis=dict(showgrid=True, gridcolor="#2a2a3a")
+        )
+        st.plotly_chart(fig_scatter, use_container_width=True)
+        st.caption(f"※ 점선은 세그먼트 분류 기준(이탈 확률 {CHURN_THRESHOLD:.2f}, Uplift {UPLIFT_THRESHOLD:.2f})을 나타냅니다.")
+    else:
+        st.info("Uplift 세그먼트 데이터가 없습니다.")
 
 elif st.session_state.menu == "Budget":
     st.markdown("### Budget Optimization & A/B Test")

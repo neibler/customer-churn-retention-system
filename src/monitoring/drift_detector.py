@@ -11,12 +11,14 @@ class DriftDetector:
     PSI(Population Stability Index) 및 KS-test(Kolmogorov-Smirnov test)를 사용함.
     """
     
-    def __init__(self, threshold_psi=0.2, threshold_ks=0.05):
+    def __init__(self, threshold_psi=0.2, threshold_ks=0.05, threshold_performance_drop=0.05):
         self.threshold_psi = threshold_psi
         self.threshold_ks = threshold_ks
+        self.threshold_performance_drop = threshold_performance_drop
         self.report = {
             "timestamp": datetime.now().isoformat(),
             "metrics": {},
+            "performance": {},
             "alerts": []
         }
 
@@ -55,11 +57,8 @@ class DriftDetector:
         """
         지정된 피처들에 대해 모니터링 수행
         """
-        self.report = {
-            "timestamp": datetime.now().isoformat(),
-            "metrics": {},
-            "alerts": []
-        }
+        self.report["metrics"] = {}
+        # alerts는 초기화하지 않고 누적 (성능 알림이 먼저 들어올 수 있음)
 
         for col in feature_cols:
             if col not in reference_df.columns or col not in current_df.columns:
@@ -103,6 +102,47 @@ class DriftDetector:
                 })
 
         return self.report
+
+    def calculate_performance_metrics(self, y_true, y_proba, threshold=0.5):
+        """
+        모델 성능 지표(AUC, Precision, Recall) 계산
+        """
+        from sklearn.metrics import roc_auc_score, precision_score, recall_score
+        
+        y_pred = (y_proba >= threshold).astype(int)
+        
+        metrics = {
+            "auc": float(roc_auc_score(y_true, y_proba)),
+            "precision": float(precision_score(y_true, y_pred, zero_division=0)),
+            "recall": float(recall_score(y_true, y_pred, zero_division=0))
+        }
+        return metrics
+
+    def add_performance_report(self, ref_metrics, cur_metrics):
+        """
+        성능 비교 및 알림 생성
+        """
+        self.report["performance"] = {
+            "reference": ref_metrics,
+            "current": cur_metrics,
+            "drop": {
+                k: ref_metrics[k] - cur_metrics[k] for k in ref_metrics
+            }
+        }
+        
+        # 성능 저하 알림 (AUC 기준)
+        auc_drop = self.report["performance"]["drop"]["auc"]
+        if auc_drop > self.threshold_performance_drop:
+            self.report["alerts"].append({
+                "type": "PERFORMANCE_DROP",
+                "feature": "model_performance",
+                "metric": "auc",
+                "value": cur_metrics["auc"],
+                "ref_value": ref_metrics["auc"],
+                "drop": auc_drop,
+                "threshold": self.threshold_performance_drop,
+                "message": f"Significant performance drop detected (AUC drop: {auc_drop:.4f})"
+            })
 
     def save_report(self, output_path="results/monitoring_report.json"):
         """결과를 JSON 파일로 저장"""
