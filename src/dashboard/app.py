@@ -14,6 +14,7 @@ import plotly.graph_objects as go
 try:
     from src.analysis.cohort import load_data, build_cohort_retention
     from src.uplift.segmentation import compute_segment_stats
+    from src.models.uplift import UPLIFT_THRESHOLD, CHURN_THRESHOLD
 except ImportError:
     # 실행 경로에 따라 임포트 에러 발생 시 처리
     import sys
@@ -21,6 +22,7 @@ except ImportError:
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
     from src.analysis.cohort import load_data, build_cohort_retention
     from src.uplift.segmentation import compute_segment_stats
+    from src.models.uplift import UPLIFT_THRESHOLD, CHURN_THRESHOLD
 
 st.set_page_config(page_title="Customer Churn & Retention Optimization Dashboard", layout="wide")
 
@@ -414,8 +416,9 @@ elif st.session_state.menu == "Uplift & CLV":
             title="고객별 이탈 위험 vs 마케팅 증분 효과"
         )
         # 4분면 가이드라인 추가
-        fig_scatter.add_hline(y=0.05, line_dash="dash", line_color="gray")
-        fig_scatter.add_vline(x=0.5, line_dash="dash", line_color="gray")
+        fig_scatter.add_hline(y=UPLIFT_THRESHOLD, line_dash="dash", line_color="gray")
+        fig_scatter.add_vline(x=CHURN_THRESHOLD, line_dash="dash", line_color="gray")
+        fig_scatter.add_hline(y=0, line_dash="dot", line_color="red", opacity=0.5)
         
         fig_scatter.update_layout(
             paper_bgcolor='rgba(0,0,0,0)',
@@ -425,7 +428,7 @@ elif st.session_state.menu == "Uplift & CLV":
             yaxis=dict(showgrid=True, gridcolor="#2a2a3a")
         )
         st.plotly_chart(fig_scatter, use_container_width=True)
-        st.caption("※ 점선은 일반적인 세그먼트 분류 기준(이탈 확률 0.5, Uplift 0.05)을 나타냅니다.")
+        st.caption(f"※ 점선은 세그먼트 분류 기준(이탈 확률 {CHURN_THRESHOLD:.2f}, Uplift {UPLIFT_THRESHOLD:.2f})을 나타냅니다.")
     else:
         st.info("Uplift 세그먼트 데이터가 없습니다.")
 

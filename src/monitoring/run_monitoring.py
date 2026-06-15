@@ -143,6 +143,9 @@ def run_drift_monitoring(
     # 모델 성능 모니터링 추가
     try:
         from src.models.ml_trainer import load_model
+    except ImportError:  # pragma: no cover
+        from src.models.ml_trainer import load_model
+    try:
         import json
 
         # 1. 모델 및 요약 정보 로드

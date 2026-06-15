@@ -135,6 +135,7 @@ class DriftDetector:
         if auc_drop > self.threshold_performance_drop:
             self.report["alerts"].append({
                 "type": "PERFORMANCE_DROP",
+                "feature": "model_performance",
                 "metric": "auc",
                 "value": cur_metrics["auc"],
                 "ref_value": ref_metrics["auc"],
