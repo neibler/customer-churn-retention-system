@@ -396,6 +396,39 @@ elif st.session_state.menu == "Uplift & CLV":
         else:
             st.info("CLV 예측 데이터가 없습니다.")
 
+    st.divider()
+    st.subheader("Uplift 4분면 분석 (Scatter Plot)")
+    if not segments_df.empty:
+        # 4분면 산점도 (Uplift Score vs Churn Probability)
+        fig_scatter = px.scatter(
+            segments_df, 
+            x="churn_prob_control", 
+            y="uplift_score",
+            color="segment",
+            hover_data=["customer_id"],
+            labels={
+                "churn_prob_control": "이탈 확률 (Base Risk)",
+                "uplift_score": "Uplift Score (Treatment Effect)",
+                "segment": "세그먼트"
+            },
+            title="고객별 이탈 위험 vs 마케팅 증분 효과"
+        )
+        # 4분면 가이드라인 추가
+        fig_scatter.add_hline(y=0.05, line_dash="dash", line_color="gray")
+        fig_scatter.add_vline(x=0.5, line_dash="dash", line_color="gray")
+        
+        fig_scatter.update_layout(
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            font=dict(color="#8c8c8c"),
+            xaxis=dict(showgrid=True, gridcolor="#2a2a3a"),
+            yaxis=dict(showgrid=True, gridcolor="#2a2a3a")
+        )
+        st.plotly_chart(fig_scatter, use_container_width=True)
+        st.caption("※ 점선은 일반적인 세그먼트 분류 기준(이탈 확률 0.5, Uplift 0.05)을 나타냅니다.")
+    else:
+        st.info("Uplift 세그먼트 데이터가 없습니다.")
+
 elif st.session_state.menu == "Budget":
     st.markdown("### Budget Optimization & A/B Test")
     
