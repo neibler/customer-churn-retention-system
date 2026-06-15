@@ -8,7 +8,7 @@ pyyaml>=6.0
 
 # ML
 scikit-learn>=1.5
-xgboost>=2.0
+xgboost>=2.0,<3.0
 lightgbm>=4.3
 imbalanced-learn>=0.11
 optuna>=3.4
